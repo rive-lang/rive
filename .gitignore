@@ -18,8 +18,3 @@
 # Source code directory
 !crates/
 !crates/rive-**/*
-
-# GitHub
-!.github/
-!.github/*
-!.github/**/*

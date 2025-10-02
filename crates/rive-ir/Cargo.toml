@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 rive-core = { path = "../rive-core" }
+rive-parser = { path = "../rive-parser" }
 serde.workspace = true
 thiserror.workspace = true
 

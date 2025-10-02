@@ -86,15 +86,13 @@ jobs:
         mkdir -p dist
         if [[ "${{ runner.os }}" == "Windows" ]]; then
           cp target/${{ matrix.target }}/release/rive.exe dist/
-          cd dist && tar -czf ../${{ matrix.artifact }}.tar.gz rive.exe
         else
           cp target/${{ matrix.target }}/release/rive dist/
-          cd dist && tar -czf ../${{ matrix.artifact }}.tar.gz rive
         fi
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact }}
-        path: ${{ matrix.artifact }}.tar.gz
+        path: dist/
         retention-days: 30
