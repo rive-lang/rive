@@ -367,7 +367,7 @@ impl CodeGenerator {
     }
 
     /// Determines if a function should be inlined based on heuristics.
-    /// 
+    ///
     /// Inline heuristics:
     /// - Small functions (≤ 5 statements)
     /// - Simple expressions (no complex control flow)
@@ -381,7 +381,7 @@ impl CodeGenerator {
 
         // Count statements in the function body
         let statement_count = self.count_statements(&function.body);
-        
+
         // Don't inline if too many statements
         if statement_count > 5 {
             return false;
@@ -402,16 +402,21 @@ impl CodeGenerator {
     }
 
     /// Counts the number of statements in a block.
+    #[allow(clippy::only_used_in_recursion)]
     fn count_statements(&self, block: &RirBlock) -> usize {
         let mut count = block.statements.len();
-        
+
         // Count statements in nested blocks
         for stmt in &block.statements {
             match stmt {
                 RirStatement::Block { block, .. } => {
                     count += self.count_statements(block);
                 }
-                RirStatement::If { then_block, else_block, .. } => {
+                RirStatement::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
                     count += self.count_statements(then_block);
                     if let Some(else_block) = else_block {
                         count += self.count_statements(else_block);
@@ -423,11 +428,12 @@ impl CodeGenerator {
                 _ => {} // Other statements don't contain nested blocks
             }
         }
-        
+
         count
     }
 
     /// Checks if a block has complex control flow patterns.
+    #[allow(clippy::only_used_in_recursion)]
     fn has_complex_control_flow(&self, block: &RirBlock) -> bool {
         for stmt in &block.statements {
             match stmt {
@@ -437,14 +443,18 @@ impl CodeGenerator {
                         return true;
                     }
                 }
-                RirStatement::If { then_block, else_block, .. } => {
+                RirStatement::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
                     if self.has_complex_control_flow(then_block) {
                         return true;
                     }
-                    if let Some(else_block) = else_block {
-                        if self.has_complex_control_flow(else_block) {
-                            return true;
-                        }
+                    if let Some(else_block) = else_block
+                        && self.has_complex_control_flow(else_block)
+                    {
+                        return true;
                     }
                 }
                 _ => {} // Other statements are simple
@@ -478,10 +488,10 @@ impl CodeGenerator {
                     }
                 }
                 RirStatement::Return { value, .. } => {
-                    if let Some(value) = value {
-                        if self.check_recursive_calls_in_expr(value, function_name) {
-                            return true;
-                        }
+                    if let Some(value) = value
+                        && self.check_recursive_calls_in_expr(value, function_name)
+                    {
+                        return true;
                     }
                 }
                 RirStatement::Block { block, .. } => {
@@ -489,14 +499,18 @@ impl CodeGenerator {
                         return true;
                     }
                 }
-                RirStatement::If { then_block, else_block, .. } => {
+                RirStatement::If {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
                     if self.check_recursive_calls_in_block(then_block, function_name) {
                         return true;
                     }
-                    if let Some(else_block) = else_block {
-                        if self.check_recursive_calls_in_block(else_block, function_name) {
-                            return true;
-                        }
+                    if let Some(else_block) = else_block
+                        && self.check_recursive_calls_in_block(else_block, function_name)
+                    {
+                        return true;
                     }
                 }
                 RirStatement::While { body, .. } => {
@@ -511,21 +525,20 @@ impl CodeGenerator {
     }
 
     /// Checks for recursive calls in an expression.
+    #[allow(clippy::only_used_in_recursion)]
     fn check_recursive_calls_in_expr(&self, expr: &RirExpression, function_name: &str) -> bool {
         match expr {
-            RirExpression::Call { function, .. } => {
-                function == function_name
-            }
+            RirExpression::Call { function, .. } => function == function_name,
             RirExpression::Binary { left, right, .. } => {
-                self.check_recursive_calls_in_expr(left, function_name) ||
-                self.check_recursive_calls_in_expr(right, function_name)
+                self.check_recursive_calls_in_expr(left, function_name)
+                    || self.check_recursive_calls_in_expr(right, function_name)
             }
             RirExpression::Unary { operand, .. } => {
                 self.check_recursive_calls_in_expr(operand, function_name)
             }
-            RirExpression::ArrayLiteral { elements, .. } => {
-                elements.iter().any(|elem| self.check_recursive_calls_in_expr(elem, function_name))
-            }
+            RirExpression::ArrayLiteral { elements, .. } => elements
+                .iter()
+                .any(|elem| self.check_recursive_calls_in_expr(elem, function_name)),
             _ => false, // Other expressions don't contain function calls
         }
     }

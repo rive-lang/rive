@@ -177,11 +177,11 @@ fn test_inline_optimization() {
     "#;
 
     let rust_code = compile_to_rust(source);
-    
+
     // Simple function should be inlined
     assert!(rust_code.contains("#[inline]"));
     assert!(rust_code.contains("fn add("));
-    
+
     // Complex function should not be inlined
     assert!(rust_code.contains("fn complex_function("));
     assert!(!rust_code.contains("#[inline]\nfn complex_function("));
