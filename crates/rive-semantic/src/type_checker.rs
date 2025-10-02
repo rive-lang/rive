@@ -120,9 +120,7 @@ impl TypeChecker {
                     && !self.types_compatible(&value_type, annotated_type)
                 {
                     return Err(Error::SemanticWithSpan(
-                        format!(
-                            "Type mismatch: expected '{annotated_type}', found '{value_type}'"
-                        ),
+                        format!("Type mismatch: expected '{annotated_type}', found '{value_type}'"),
                         *span,
                     ));
                 }
