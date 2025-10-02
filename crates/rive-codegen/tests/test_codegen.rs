@@ -152,3 +152,37 @@ fn test_generate_complex_expression() {
     assert!(rust_code.contains("let result"));
     assert!(rust_code.contains("90"));
 }
+
+#[test]
+fn test_inline_optimization() {
+    let source = r#"
+        fun main() {
+            let result = add(3, 4)
+            print("Result:", result)
+        }
+        
+        fun add(x: Int, y: Int): Int {
+            return x + y
+        }
+        
+        fun complex_function(x: Int, y: Int): Int {
+            let step1 = x + y
+            let step2 = x - y
+            let step3 = step1 * step2
+            let step4 = step3 / 2
+            let step5 = step4 + 1
+            let step6 = step5 * 2
+            return step6
+        }
+    "#;
+
+    let rust_code = compile_to_rust(source);
+    
+    // Simple function should be inlined
+    assert!(rust_code.contains("#[inline]"));
+    assert!(rust_code.contains("fn add("));
+    
+    // Complex function should not be inlined
+    assert!(rust_code.contains("fn complex_function("));
+    assert!(!rust_code.contains("#[inline]\nfn complex_function("));
+}

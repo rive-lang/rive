@@ -47,11 +47,23 @@ impl CodeGenerator {
         let return_type = self.generate_return_type(function.return_type);
         let body = self.generate_block(&function.body)?;
 
-        Ok(quote! {
-            fn #name(#(#params),*) #return_type {
-                #body
-            }
-        })
+        // Determine if function should be inlined
+        let should_inline = self.should_inline_function(function);
+
+        if should_inline {
+            Ok(quote! {
+                #[inline]
+                fn #name(#(#params),*) #return_type {
+                    #body
+                }
+            })
+        } else {
+            Ok(quote! {
+                fn #name(#(#params),*) #return_type {
+                    #body
+                }
+            })
+        }
     }
 
     /// Generates function parameters.
@@ -351,6 +363,170 @@ impl CodeGenerator {
                 // For other types (arrays, custom types), use simple approach for now
                 Ok(quote! { () })
             }
+        }
+    }
+
+    /// Determines if a function should be inlined based on heuristics.
+    /// 
+    /// Inline heuristics:
+    /// - Small functions (≤ 5 statements)
+    /// - Simple expressions (no complex control flow)
+    /// - No recursive calls
+    /// - Not the main function (main should not be inlined)
+    fn should_inline_function(&self, function: &RirFunction) -> bool {
+        // Don't inline main function
+        if function.name == "main" {
+            return false;
+        }
+
+        // Count statements in the function body
+        let statement_count = self.count_statements(&function.body);
+        
+        // Don't inline if too many statements
+        if statement_count > 5 {
+            return false;
+        }
+
+        // Check for complex control flow (loops, nested blocks)
+        if self.has_complex_control_flow(&function.body) {
+            return false;
+        }
+
+        // Check for recursive calls (simplified check)
+        if self.has_recursive_calls(function) {
+            return false;
+        }
+
+        // Function is suitable for inlining
+        true
+    }
+
+    /// Counts the number of statements in a block.
+    fn count_statements(&self, block: &RirBlock) -> usize {
+        let mut count = block.statements.len();
+        
+        // Count statements in nested blocks
+        for stmt in &block.statements {
+            match stmt {
+                RirStatement::Block { block, .. } => {
+                    count += self.count_statements(block);
+                }
+                RirStatement::If { then_block, else_block, .. } => {
+                    count += self.count_statements(then_block);
+                    if let Some(else_block) = else_block {
+                        count += self.count_statements(else_block);
+                    }
+                }
+                RirStatement::While { body, .. } => {
+                    count += self.count_statements(body);
+                }
+                _ => {} // Other statements don't contain nested blocks
+            }
+        }
+        
+        count
+    }
+
+    /// Checks if a block has complex control flow patterns.
+    fn has_complex_control_flow(&self, block: &RirBlock) -> bool {
+        for stmt in &block.statements {
+            match stmt {
+                RirStatement::While { .. } => return true, // Loops are complex
+                RirStatement::Block { block, .. } => {
+                    if self.has_complex_control_flow(block) {
+                        return true;
+                    }
+                }
+                RirStatement::If { then_block, else_block, .. } => {
+                    if self.has_complex_control_flow(then_block) {
+                        return true;
+                    }
+                    if let Some(else_block) = else_block {
+                        if self.has_complex_control_flow(else_block) {
+                            return true;
+                        }
+                    }
+                }
+                _ => {} // Other statements are simple
+            }
+        }
+        false
+    }
+
+    /// Checks if a function contains recursive calls (simplified check).
+    fn has_recursive_calls(&self, function: &RirFunction) -> bool {
+        self.check_recursive_calls_in_block(&function.body, &function.name)
+    }
+
+    /// Recursively checks for recursive calls in a block.
+    fn check_recursive_calls_in_block(&self, block: &RirBlock, function_name: &str) -> bool {
+        for stmt in &block.statements {
+            match stmt {
+                RirStatement::Expression { expr, .. } => {
+                    if self.check_recursive_calls_in_expr(expr, function_name) {
+                        return true;
+                    }
+                }
+                RirStatement::Let { value, .. } => {
+                    if self.check_recursive_calls_in_expr(value, function_name) {
+                        return true;
+                    }
+                }
+                RirStatement::Assign { value, .. } => {
+                    if self.check_recursive_calls_in_expr(value, function_name) {
+                        return true;
+                    }
+                }
+                RirStatement::Return { value, .. } => {
+                    if let Some(value) = value {
+                        if self.check_recursive_calls_in_expr(value, function_name) {
+                            return true;
+                        }
+                    }
+                }
+                RirStatement::Block { block, .. } => {
+                    if self.check_recursive_calls_in_block(block, function_name) {
+                        return true;
+                    }
+                }
+                RirStatement::If { then_block, else_block, .. } => {
+                    if self.check_recursive_calls_in_block(then_block, function_name) {
+                        return true;
+                    }
+                    if let Some(else_block) = else_block {
+                        if self.check_recursive_calls_in_block(else_block, function_name) {
+                            return true;
+                        }
+                    }
+                }
+                RirStatement::While { body, .. } => {
+                    if self.check_recursive_calls_in_block(body, function_name) {
+                        return true;
+                    }
+                }
+                _ => {} // Other statements don't contain expressions
+            }
+        }
+        false
+    }
+
+    /// Checks for recursive calls in an expression.
+    fn check_recursive_calls_in_expr(&self, expr: &RirExpression, function_name: &str) -> bool {
+        match expr {
+            RirExpression::Call { function, .. } => {
+                function == function_name
+            }
+            RirExpression::Binary { left, right, .. } => {
+                self.check_recursive_calls_in_expr(left, function_name) ||
+                self.check_recursive_calls_in_expr(right, function_name)
+            }
+            RirExpression::Unary { operand, .. } => {
+                self.check_recursive_calls_in_expr(operand, function_name)
+            }
+            RirExpression::ArrayLiteral { elements, .. } => {
+                elements.iter().any(|elem| self.check_recursive_calls_in_expr(elem, function_name))
+            }
+            _ => false, // Other expressions don't contain function calls
         }
     }
 }
