@@ -1,7 +1,11 @@
 //! Compiler pipeline implementation.
+//!
+//! Pipeline: Source → Lexer → Parser → AST → Semantic → RIR → Optimizer → CodeGen → Rust
 
 use anyhow::{Context, Result};
-use rive_codegen::generate;
+use rive_codegen::CodeGenerator;
+use rive_core::type_system::TypeRegistry;
+use rive_ir::{AstLowering, Optimizer};
 use rive_lexer::tokenize;
 use rive_parser::parse;
 use rive_utils::Config;
@@ -77,8 +81,25 @@ impl Compiler {
             anyhow::anyhow!("Semantic analysis failed")
         })?;
 
-        // Code generation
-        let rust_code = generate(&ast).with_context(|| "Code generation failed")?;
+        // AST → RIR lowering
+        let type_registry = TypeRegistry::new();
+        let mut lowering = AstLowering::new(type_registry);
+        let mut rir_module = lowering.lower_program(&ast).map_err(|e| {
+            let report = miette::Report::new(e)
+                .with_source_code(miette::NamedSource::new("main.rive", source.clone()));
+            eprintln!("{report:?}");
+            anyhow::anyhow!("RIR lowering failed")
+        })?;
+
+        // RIR optimization
+        let optimizer = Optimizer::new(); // Default passes: constant folding + dead code elimination
+        optimizer.optimize(&mut rir_module);
+
+        // Code generation (RIR → Rust)
+        let mut codegen = CodeGenerator::new();
+        let rust_code = codegen
+            .generate(&rir_module)
+            .with_context(|| "Code generation failed")?;
 
         // Save generated Rust code to target directory
         let target_dir = self.project_root.join("target");
@@ -156,7 +177,7 @@ impl Compiler {
         })?;
 
         // Parsing
-        let _ast = parse(&tokens).map_err(|e| {
+        let ast = parse(&tokens).map_err(|e| {
             let report = miette::Report::new(e)
                 .with_source_code(miette::NamedSource::new("main.rive", source.clone()));
             eprintln!("{report:?}");
@@ -164,15 +185,32 @@ impl Compiler {
         })?;
 
         // Semantic analysis (type checking)
-        rive_semantic::analyze(&_ast).map_err(|e| {
+        rive_semantic::analyze(&ast).map_err(|e| {
             let report = miette::Report::new(e)
                 .with_source_code(miette::NamedSource::new("main.rive", source.clone()));
             eprintln!("{report:?}");
             anyhow::anyhow!("Semantic analysis failed")
         })?;
 
+        // AST → RIR lowering (to verify it can lower)
+        let type_registry = TypeRegistry::new();
+        let mut lowering = AstLowering::new(type_registry);
+        let mut rir_module = lowering.lower_program(&ast).map_err(|e| {
+            let report = miette::Report::new(e)
+                .with_source_code(miette::NamedSource::new("main.rive", source.clone()));
+            eprintln!("{report:?}");
+            anyhow::anyhow!("RIR lowering failed")
+        })?;
+
+        // RIR optimization
+        let optimizer = Optimizer::new();
+        optimizer.optimize(&mut rir_module);
+
         // Code generation (to verify it can generate)
-        let _rust_code = generate(&_ast).with_context(|| "Code generation failed")?;
+        let mut codegen = CodeGenerator::new();
+        let _rust_code = codegen
+            .generate(&rir_module)
+            .with_context(|| "Code generation failed")?;
 
         let duration = start.elapsed();
 

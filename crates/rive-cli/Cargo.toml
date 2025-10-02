@@ -16,6 +16,7 @@ rive-utils = { path = "../rive-utils" }
 rive-lexer = { path = "../rive-lexer" }
 rive-parser = { path = "../rive-parser" }
 rive-semantic = { path = "../rive-semantic" }
+rive-ir = { path = "../rive-ir" }
 rive-codegen = { path = "../rive-codegen" }
 
 clap.workspace = true

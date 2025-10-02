@@ -475,6 +475,7 @@ dependencies = [
  "miette",
  "rive-codegen",
  "rive-core",
+ "rive-ir",
  "rive-lexer",
  "rive-parser",
  "rive-semantic",
@@ -518,6 +519,7 @@ version = "0.1.0"
 dependencies = [
  "insta",
  "rive-core",
+ "rive-parser",
  "serde",
  "thiserror",
 ]

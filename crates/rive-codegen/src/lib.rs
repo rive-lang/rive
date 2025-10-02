@@ -1,18 +1,18 @@
 //! Code generation for the Rive language.
 //!
-//! This crate generates Rust code from Rive ASTs.
+//! This crate generates Rust code from Rive Intermediate Representation (RIR).
 
 mod codegen;
 
 pub use codegen::CodeGenerator;
 
 use rive_core::Result;
-use rive_parser::Program;
+use rive_ir::RirModule;
 
-/// Generates Rust code from a Rive program AST.
+/// Generates Rust code from a RIR module.
 ///
 /// # Arguments
-/// * `program` - The parsed Rive program
+/// * `module` - The RIR module to generate code from
 ///
 /// # Returns
 /// Generated Rust source code as a string
@@ -22,16 +22,16 @@ use rive_parser::Program;
 ///
 /// # Examples
 /// ```
-/// use rive_lexer::tokenize;
-/// use rive_parser::parse;
-/// use rive_codegen::generate;
+/// use rive_codegen::CodeGenerator;
+/// use rive_core::type_system::TypeRegistry;
+/// use rive_ir::RirModule;
 ///
-/// let source = "fun main() { print(\"Hello\") }";
-/// let tokens = tokenize(source).unwrap();
-/// let ast = parse(&tokens).unwrap();
-/// let rust_code = generate(&ast).unwrap();
+/// let type_registry = TypeRegistry::new();
+/// let module = RirModule::new(type_registry);
+/// let mut generator = CodeGenerator::new();
+/// let rust_code = generator.generate(&module).unwrap();
 /// ```
-pub fn generate(program: &Program) -> Result<String> {
+pub fn generate(module: &RirModule) -> Result<String> {
     let mut generator = CodeGenerator::new();
-    generator.generate(program)
+    generator.generate(module)
 }

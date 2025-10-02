@@ -116,15 +116,15 @@ impl TypeChecker {
                 let value_type = self.check_expression(initializer)?;
 
                 // If type annotation exists, verify it matches
-                if let Some(annotated_type) = var_type {
-                    if !self.types_compatible(&value_type, annotated_type) {
-                        return Err(Error::SemanticWithSpan(
-                            format!(
-                                "Type mismatch: expected '{annotated_type}', found '{value_type}'"
-                            ),
-                            *span,
-                        ));
-                    }
+                if let Some(annotated_type) = var_type
+                    && !self.types_compatible(&value_type, annotated_type)
+                {
+                    return Err(Error::SemanticWithSpan(
+                        format!(
+                            "Type mismatch: expected '{annotated_type}', found '{value_type}'"
+                        ),
+                        *span,
+                    ));
                 }
 
                 // Define the variable
@@ -178,15 +178,15 @@ impl TypeChecker {
                     Type::Unit
                 };
 
-                if let Some(expected_type) = &self.current_function_return_type {
-                    if !self.types_compatible(&return_type, expected_type) {
-                        return Err(Error::SemanticWithSpan(
-                            format!(
-                                "Return type mismatch: expected '{expected_type}', found '{return_type}'"
-                            ),
-                            *span,
-                        ));
-                    }
+                if let Some(expected_type) = &self.current_function_return_type
+                    && !self.types_compatible(&return_type, expected_type)
+                {
+                    return Err(Error::SemanticWithSpan(
+                        format!(
+                            "Return type mismatch: expected '{expected_type}', found '{return_type}'"
+                        ),
+                        *span,
+                    ));
                 }
 
                 Ok(())

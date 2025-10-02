@@ -1,33 +1,31 @@
 //! Core code generation logic.
 //!
-//! Implements the Automatic Value Semantics (AVS) memory model:
-//! - Copy types: Stack-allocated, bitwise copyable (i64, f64, bool)
-//! - CoW types: Reference-counted with copy-on-write (String, arrays of non-Copy types)
-//! - Unique types: Move-only semantics (future: marked with @unique)
+//! Generates Rust code from the Rive Intermediate Representation (RIR).
+//! The RIR includes explicit memory strategy annotations that guide code generation.
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use rive_core::{Error, Result, types::Type};
-use rive_parser::{BinaryOperator, Expression, Item, Program, Statement, UnaryOperator};
+use rive_core::{
+    Error, Result,
+    type_system::{MemoryStrategy, TypeId},
+};
+use rive_ir::{BinaryOp, RirBlock, RirExpression, RirFunction, RirModule, RirStatement, UnaryOp};
 
 /// Code generator for Rive programs.
-pub struct CodeGenerator {
-    /// Counter for generating unique temporary variable names
-    temp_counter: usize,
-}
+pub struct CodeGenerator {}
 
 impl CodeGenerator {
     /// Creates a new code generator.
     pub fn new() -> Self {
-        Self { temp_counter: 0 }
+        Self {}
     }
 
-    /// Generates Rust code from a Rive program.
-    pub fn generate(&mut self, program: &Program) -> Result<String> {
+    /// Generates Rust code from a RIR module.
+    pub fn generate(&mut self, module: &RirModule) -> Result<String> {
         let mut items = Vec::new();
 
-        for item in &program.items {
-            items.push(self.generate_item(item)?);
+        for function in &module.functions {
+            items.push(self.generate_function(function)?);
         }
 
         let tokens = quote! {
@@ -42,53 +40,55 @@ impl CodeGenerator {
         Ok(prettyplease::unparse(&syntax_tree))
     }
 
-    /// Generates code for a top-level item.
-    fn generate_item(&mut self, item: &Item) -> Result<TokenStream> {
-        match item {
-            Item::Function(func) => {
-                let name = format_ident!("{}", func.name);
-                let params = self.generate_parameters(&func.params)?;
-                let return_type = self.generate_return_type(&func.return_type);
-                let body = self.generate_block(&func.body)?;
+    /// Generates code for a RIR function.
+    fn generate_function(&mut self, function: &RirFunction) -> Result<TokenStream> {
+        let name = format_ident!("{}", function.name);
+        let params = self.generate_parameters(&function.parameters)?;
+        let return_type = self.generate_return_type(function.return_type);
+        let body = self.generate_block(&function.body)?;
 
-                Ok(quote! {
-                    fn #name(#(#params),*) #return_type {
-                        #body
-                    }
-                })
+        Ok(quote! {
+            fn #name(#(#params),*) #return_type {
+                #body
             }
-        }
+        })
     }
 
     /// Generates function parameters.
-    fn generate_parameters(&self, params: &[rive_parser::Parameter]) -> Result<Vec<TokenStream>> {
+    fn generate_parameters(&self, params: &[rive_ir::RirParameter]) -> Result<Vec<TokenStream>> {
         params
             .iter()
             .map(|param| {
                 let name = format_ident!("{}", param.name);
-                let ty = self.rust_type(&param.param_type)?;
+                let ty = self.rust_type(param.type_id, param.memory_strategy)?;
                 Ok(quote! { #name: #ty })
             })
             .collect()
     }
 
     /// Generates return type annotation.
-    fn generate_return_type(&self, ty: &Type) -> TokenStream {
-        if ty.is_unit() {
+    fn generate_return_type(&self, type_id: TypeId) -> TokenStream {
+        if type_id == TypeId::UNIT {
             quote! {}
         } else {
-            let rust_ty = self.rust_type(ty).unwrap();
-            // Use explicit token construction to avoid extra spaces
+            // Return types typically use Copy or CoW strategy, not RcRefCell
+            let rust_ty = self.rust_type(type_id, MemoryStrategy::Copy).unwrap();
             quote! {-> #rust_ty}
         }
     }
 
-    /// Generates code for a block.
-    fn generate_block(&mut self, block: &rive_parser::Block) -> Result<TokenStream> {
+    /// Generates code for a RIR block.
+    fn generate_block(&mut self, block: &RirBlock) -> Result<TokenStream> {
         let mut statements = Vec::new();
 
         for stmt in &block.statements {
             statements.push(self.generate_statement(stmt)?);
+        }
+
+        // Handle final expression if present
+        if let Some(final_expr) = &block.final_expr {
+            let expr = self.generate_expression(final_expr)?;
+            statements.push(quote! { #expr });
         }
 
         Ok(quote! {
@@ -96,19 +96,19 @@ impl CodeGenerator {
         })
     }
 
-    /// Generates code for a statement.
-    fn generate_statement(&mut self, stmt: &Statement) -> Result<TokenStream> {
+    /// Generates code for a RIR statement.
+    fn generate_statement(&mut self, stmt: &RirStatement) -> Result<TokenStream> {
         match stmt {
-            Statement::Let {
+            RirStatement::Let {
                 name,
-                mutable,
-                initializer,
+                is_mutable,
+                value,
                 ..
             } => {
                 let var_name = format_ident!("{}", name);
-                let expr = self.generate_expression(initializer)?;
+                let expr = self.generate_expression(value)?;
 
-                if *mutable {
+                if *is_mutable {
                     Ok(quote! {
                         let mut #var_name = #expr;
                     })
@@ -118,7 +118,7 @@ impl CodeGenerator {
                     })
                 }
             }
-            Statement::Assignment { name, value, .. } => {
+            RirStatement::Assign { name, value, .. } => {
                 let var_name = format_ident!("{}", name);
                 let expr = self.generate_expression(value)?;
 
@@ -126,13 +126,27 @@ impl CodeGenerator {
                     #var_name = #expr;
                 })
             }
-            Statement::Expression { expression, .. } => {
-                let expr = self.generate_expression(expression)?;
+            RirStatement::AssignIndex {
+                array,
+                index,
+                value,
+                ..
+            } => {
+                let array_name = format_ident!("{}", array);
+                let index_expr = self.generate_expression(index)?;
+                let value_expr = self.generate_expression(value)?;
+
                 Ok(quote! {
-                    #expr;
+                    #array_name[#index_expr] = #value_expr;
                 })
             }
-            Statement::Return { value, .. } => {
+            RirStatement::Expression { expr, .. } => {
+                let expression = self.generate_expression(expr)?;
+                Ok(quote! {
+                    #expression;
+                })
+            }
+            RirStatement::Return { value, .. } => {
                 if let Some(expr) = value {
                     let generated_expr = self.generate_expression(expr)?;
                     Ok(quote! {
@@ -144,82 +158,124 @@ impl CodeGenerator {
                     })
                 }
             }
+            RirStatement::If {
+                condition,
+                then_block,
+                else_block,
+                ..
+            } => {
+                let cond = self.generate_expression(condition)?;
+                let then_body = self.generate_block(then_block)?;
+
+                if let Some(else_blk) = else_block {
+                    let else_body = self.generate_block(else_blk)?;
+                    Ok(quote! {
+                        if #cond {
+                            #then_body
+                        } else {
+                            #else_body
+                        }
+                    })
+                } else {
+                    Ok(quote! {
+                        if #cond {
+                            #then_body
+                        }
+                    })
+                }
+            }
+            RirStatement::While {
+                condition, body, ..
+            } => {
+                let cond = self.generate_expression(condition)?;
+                let loop_body = self.generate_block(body)?;
+
+                Ok(quote! {
+                    while #cond {
+                        #loop_body
+                    }
+                })
+            }
+            RirStatement::Block { block, .. } => {
+                let body = self.generate_block(block)?;
+                Ok(quote! {
+                    {
+                        #body
+                    }
+                })
+            }
         }
     }
 
-    /// Generates code for an expression.
+    /// Generates code for a RIR expression.
     #[allow(clippy::only_used_in_recursion)]
-    fn generate_expression(&mut self, expr: &Expression) -> Result<TokenStream> {
+    fn generate_expression(&mut self, expr: &RirExpression) -> Result<TokenStream> {
         match expr {
-            Expression::Integer { value, .. } => {
+            RirExpression::Unit { .. } => Ok(quote! { () }),
+            RirExpression::IntLiteral { value, .. } => {
                 let lit = proc_macro2::Literal::i64_unsuffixed(*value);
                 Ok(quote! { #lit })
             }
-            Expression::Float { value, .. } => {
+            RirExpression::FloatLiteral { value, .. } => {
                 let lit = proc_macro2::Literal::f64_unsuffixed(*value);
                 Ok(quote! { #lit })
             }
-            Expression::String { value, .. } => {
+            RirExpression::StringLiteral { value, .. } => {
                 let lit = proc_macro2::Literal::string(value);
-                // TODO: Wrap in Rc<RefCell<>> for CoW when escape analysis is implemented
                 Ok(quote! { #lit.to_string() })
             }
-            Expression::Boolean { value, .. } => {
+            RirExpression::BoolLiteral { value, .. } => {
                 if *value {
                     Ok(quote! { true })
                 } else {
                     Ok(quote! { false })
                 }
             }
-            Expression::Null { .. } => Ok(quote! { None }),
-            Expression::Variable { name, .. } => {
+            RirExpression::Variable { name, .. } => {
                 let var_name = format_ident!("{}", name);
                 Ok(quote! { #var_name })
             }
-            Expression::Binary {
-                left,
-                operator,
-                right,
-                ..
+            RirExpression::Binary {
+                op, left, right, ..
             } => {
                 let left_expr = self.generate_expression(left)?;
                 let right_expr = self.generate_expression(right)?;
 
-                let op = match operator {
-                    BinaryOperator::Add => quote! { + },
-                    BinaryOperator::Subtract => quote! { - },
-                    BinaryOperator::Multiply => quote! { * },
-                    BinaryOperator::Divide => quote! { / },
-                    BinaryOperator::Modulo => quote! { % },
-                    BinaryOperator::Equal => quote! { == },
-                    BinaryOperator::NotEqual => quote! { != },
-                    BinaryOperator::Less => quote! { < },
-                    BinaryOperator::LessEqual => quote! { <= },
-                    BinaryOperator::Greater => quote! { > },
-                    BinaryOperator::GreaterEqual => quote! { >= },
-                    BinaryOperator::And => quote! { && },
-                    BinaryOperator::Or => quote! { || },
+                let operator = match op {
+                    BinaryOp::Add => quote! { + },
+                    BinaryOp::Subtract => quote! { - },
+                    BinaryOp::Multiply => quote! { * },
+                    BinaryOp::Divide => quote! { / },
+                    BinaryOp::Modulo => quote! { % },
+                    BinaryOp::Equal => quote! { == },
+                    BinaryOp::NotEqual => quote! { != },
+                    BinaryOp::LessThan => quote! { < },
+                    BinaryOp::LessEqual => quote! { <= },
+                    BinaryOp::GreaterThan => quote! { > },
+                    BinaryOp::GreaterEqual => quote! { >= },
+                    BinaryOp::And => quote! { && },
+                    BinaryOp::Or => quote! { || },
                 };
 
-                Ok(quote! { (#left_expr #op #right_expr) })
+                Ok(quote! { (#left_expr #operator #right_expr) })
             }
-            Expression::Unary {
-                operator, operand, ..
-            } => {
+            RirExpression::Unary { op, operand, .. } => {
                 let operand_expr = self.generate_expression(operand)?;
 
-                let op = match operator {
-                    UnaryOperator::Negate => quote! { - },
-                    UnaryOperator::Not => quote! { ! },
+                let operator = match op {
+                    UnaryOp::Negate => quote! { - },
+                    UnaryOp::Not => quote! { ! },
                 };
 
-                Ok(quote! { (#op #operand_expr) })
+                Ok(quote! { (#operator #operand_expr) })
             }
-            Expression::Call {
-                callee, arguments, ..
+            RirExpression::Call {
+                function,
+                arguments,
+                ..
             } => {
                 // Special handling for print function
-                if callee == "print" {
+                if function == "print" {
                     if arguments.is_empty() {
                         return Err(Error::Codegen(
                             "print() requires at least one argument".to_string(),
@@ -233,7 +289,6 @@ impl CodeGenerator {
                         .collect::<Result<Vec<_>>>()?;
 
                     // Create format string with {:?} for each argument (Debug formatting)
-                    // This works for all types including Rc<RefCell<T>>
                     let format_str = vec!["{:?}"; arguments.len()].join(" ");
 
                     return Ok(quote! {
@@ -241,7 +296,7 @@ impl CodeGenerator {
                     });
                 }
 
-                let func_name = format_ident!("{}", callee);
+                let func_name = format_ident!("{}", function);
                 let args = arguments
                     .iter()
                     .map(|arg| self.generate_expression(arg))
@@ -251,96 +306,52 @@ impl CodeGenerator {
                     #func_name(#(#args),*)
                 })
             }
-            Expression::Array { elements, .. } => {
+            RirExpression::ArrayLiteral { elements, .. } => {
                 let elems = elements
                     .iter()
                     .map(|elem| self.generate_expression(elem))
                     .collect::<Result<Vec<_>>>()?;
 
-                // Check if all elements are Copy types (literals)
-                let all_copy = elements.iter().all(|elem| {
-                    matches!(
-                        elem,
-                        Expression::Integer { .. }
-                            | Expression::Float { .. }
-                            | Expression::Boolean { .. }
-                    )
-                });
+                // TODO: Use memory strategy annotation to determine array type
+                // For now, always use fixed-size arrays
+                Ok(quote! {
+                    [#(#elems),*]
+                })
+            }
+            RirExpression::Index { array, index, .. } => {
+                let array_expr = self.generate_expression(array)?;
+                let index_expr = self.generate_expression(index)?;
 
-                if all_copy {
-                    // For Copy types, use fixed-size arrays [T; N]
-                    // Arrays of Copy types (up to size 32) automatically implement Copy
-                    Ok(quote! {
-                        [#(#elems),*]
-                    })
-                } else {
-                    // For non-Copy types, use Rc<RefCell<>> for CoW semantics
-                    Ok(quote! {
-                        std::rc::Rc::new(std::cell::RefCell::new(vec![#(#elems),*]))
-                    })
-                }
+                Ok(quote! {
+                    #array_expr[#index_expr]
+                })
             }
         }
     }
 
-    /// Converts a Rive type to Rust type with AVS memory model.
+    /// Converts a TypeId and MemoryStrategy to a Rust type.
     ///
-    /// This method implements the Automatic Value Semantics (AVS) model:
-    /// - Copy types (Int, Float, Bool) => direct Rust types (i64, f64, bool)
-    /// - CoW types (Text) => Rc<RefCell<T>> for shared mutable state
-    /// - Arrays inherit strategy from their element type
-    #[allow(clippy::only_used_in_recursion)]
-    fn rust_type(&self, ty: &Type) -> Result<TokenStream> {
-        match ty {
-            Type::Int => Ok(quote! { i64 }),
-            Type::Float => Ok(quote! { f64 }),
-            Type::Bool => Ok(quote! { bool }),
-            Type::Unit => Ok(quote! { () }),
-            Type::Text => {
-                // TODO: Implement full CoW strategy with Rc<RefCell<String>>
-                // For now, use plain String to simplify code generation
-                Ok(quote! { String })
-            }
-            Type::Optional(inner) => {
-                let inner_type = self.rust_type(inner)?;
-                Ok(quote! { Option<#inner_type> })
-            }
-            Type::Array(elem_type, size) => {
-                let elem = self.rust_type(elem_type)?;
-                let size_lit = proc_macro2::Literal::usize_unsuffixed(*size);
-
-                // Check if element type is Copy
-                let elem_is_copy =
-                    matches!(elem_type.as_ref(), Type::Int | Type::Float | Type::Bool);
-
-                if elem_is_copy {
-                    // For Copy types, use fixed-size arrays [T; N]
-                    Ok(quote! { [#elem; #size_lit] })
-                } else {
-                    // For non-Copy types, use Rc<RefCell<>> for CoW semantics
-                    Ok(quote! { std::rc::Rc<std::cell::RefCell<Vec<#elem>>> })
-                }
-            }
-            Type::Function {
-                parameters,
-                return_type,
-            } => {
-                let param_types: Vec<_> = parameters
-                    .iter()
-                    .map(|p| self.rust_type(p))
-                    .collect::<Result<Vec<_>>>()?;
-                let ret = self.rust_type(return_type)?;
-                Ok(quote! { fn(#(#param_types),*) -> #ret })
+    /// This method uses the RIR's memory strategy annotations to generate
+    /// the appropriate Rust types:
+    /// - Copy: Direct value types (i64, f64, bool, String)
+    /// - CoW: Copy-on-write types (Rc<String>, Rc<Vec<T>>)
+    /// - Unique: Move-only types (not yet fully implemented)
+    fn rust_type(&self, type_id: TypeId, strategy: MemoryStrategy) -> Result<TokenStream> {
+        match type_id {
+            TypeId::INT => Ok(quote! { i64 }),
+            TypeId::FLOAT => Ok(quote! { f64 }),
+            TypeId::BOOL => Ok(quote! { bool }),
+            TypeId::UNIT => Ok(quote! { () }),
+            TypeId::TEXT => match strategy {
+                MemoryStrategy::Copy => Ok(quote! { String }),
+                MemoryStrategy::CoW => Ok(quote! { std::rc::Rc<std::cell::RefCell<String>> }),
+                MemoryStrategy::Unique => Ok(quote! { String }),
+            },
+            _ => {
+                // For other types (arrays, custom types), use simple approach for now
+                Ok(quote! { () })
             }
         }
-    }
-
-    /// Generates a unique temporary variable name.
-    #[allow(dead_code)]
-    fn temp_var(&mut self) -> String {
-        let name = format!("_temp_{}", self.temp_counter);
-        self.temp_counter += 1;
-        name
     }
 }
 
