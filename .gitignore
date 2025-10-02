@@ -1,0 +1,25 @@
+# Ignore all files by default for security
+*
+
+# Project documentation
+!.gitignore
+!README.md
+!CONTRIBUTING.md
+!CODE_OF_CONDUCT.md
+
+# Legal files
+!COPYRIGHT
+!LICENSE-*
+
+# Build configuration
+!Cargo.toml
+!Cargo.lock
+
+# Source code directory
+!crates/
+!crates/rive-**/*
+
+# GitHub
+!.github/
+!.github/*
+!.github/**/*

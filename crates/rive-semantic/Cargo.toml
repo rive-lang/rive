@@ -1,0 +1,18 @@
+[package]
+name = "rive-semantic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+rive-core = { path = "../rive-core" }
+rive-parser = { path = "../rive-parser" }
+rive-ir = { path = "../rive-ir" }
+miette.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+rive-lexer = { path = "../rive-lexer" }

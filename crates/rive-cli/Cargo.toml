@@ -1,0 +1,32 @@
+[package]
+name = "rive-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "rive"
+path = "src/main.rs"
+
+[dependencies]
+rive-core = { path = "../rive-core" }
+rive-utils = { path = "../rive-utils" }
+rive-lexer = { path = "../rive-lexer" }
+rive-parser = { path = "../rive-parser" }
+rive-semantic = { path = "../rive-semantic" }
+rive-codegen = { path = "../rive-codegen" }
+
+clap.workspace = true
+serde.workspace = true
+toml.workspace = true
+miette.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+colored.workspace = true
+tempfile.workspace = true
+which.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "rive-codegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+rive-core = { path = "../rive-core" }
+rive-parser = { path = "../rive-parser" }
+rive-ir = { path = "../rive-ir" }
+quote.workspace = true
+proc-macro2.workspace = true
+thiserror.workspace = true
+prettyplease.workspace = true
+syn.workspace = true
+
+[dev-dependencies]
+rive-lexer = { path = "../rive-lexer" }
+insta.workspace = true

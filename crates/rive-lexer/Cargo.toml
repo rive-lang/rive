@@ -1,0 +1,16 @@
+[package]
+name = "rive-lexer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+rive-core = { path = "../rive-core" }
+logos.workspace = true
+miette.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

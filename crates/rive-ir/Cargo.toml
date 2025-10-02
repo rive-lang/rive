@@ -1,0 +1,15 @@
+[package]
+name = "rive-ir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+rive-core = { path = "../rive-core" }
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

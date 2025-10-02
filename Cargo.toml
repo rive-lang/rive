@@ -1,0 +1,58 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/rive-core",
+    "crates/rive-utils",
+    "crates/rive-cli",
+    "crates/rive-lexer",
+    "crates/rive-parser",
+    "crates/rive-semantic",
+    "crates/rive-ir",
+    "crates/rive-codegen",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "A systems programming language that is simple by default, powerful when needed."
+authors = ["The Rive Project Contributors"]
+repository = "https://github.com/rive-lang/rive"
+keywords = ["programming-language"]
+
+[workspace.dependencies]
+# Core dependencies
+clap = { version = "4.5", features = ["derive", "color"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+miette = { version = "7.0", features = ["fancy"] }
+thiserror = "1.0"
+anyhow = "1.0"
+colored = "2.1"
+
+# Lexer/Parser dependencies
+logos = "0.14"
+
+# Code generation
+quote = "1.0"
+proc-macro2 = "1.0"
+prettyplease = "0.2"
+syn = { version = "2.0", features = ["full", "parsing"] }
+
+# Utilities
+tempfile = "3.8"
+which = "6.0"
+rustc_version = "0.4"
+
+# Development dependencies
+insta = "1.34"
+criterion = "0.5"
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
