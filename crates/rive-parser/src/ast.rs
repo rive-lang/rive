@@ -67,6 +67,12 @@ pub enum Statement {
         value: Option<Expression>,
         span: Span,
     },
+
+    /// Break statement: `break [depth] [value]`
+    Break(crate::control_flow::Break),
+
+    /// Continue statement: `continue [depth]`
+    Continue(crate::control_flow::Continue),
 }
 
 /// Expressions in Rive.
@@ -117,23 +123,47 @@ pub enum Expression {
         elements: Vec<Expression>,
         span: Span,
     },
+
+    /// If expression: `if cond { ... } else { ... }`
+    If(Box<crate::control_flow::If>),
+
+    /// While loop: `while cond { ... }`
+    While(Box<crate::control_flow::While>),
+
+    /// For loop: `for var in iterable { ... }`
+    For(Box<crate::control_flow::For>),
+
+    /// Infinite loop: `loop { ... }`
+    Loop(Box<crate::control_flow::Loop>),
+
+    /// Match expression: `match expr { pattern -> expr, ... }`
+    Match(Box<crate::control_flow::Match>),
+
+    /// Range expression: `start..end` or `start..=end`
+    Range(Box<crate::control_flow::Range>),
 }
 
 impl Expression {
     /// Returns the span of this expression.
     #[must_use]
-    pub const fn span(&self) -> Span {
+    pub fn span(&self) -> Span {
         match self {
-            Self::Integer { span, .. }
-            | Self::Float { span, .. }
-            | Self::String { span, .. }
-            | Self::Boolean { span, .. }
-            | Self::Null { span }
-            | Self::Variable { span, .. }
-            | Self::Binary { span, .. }
-            | Self::Unary { span, .. }
-            | Self::Call { span, .. }
-            | Self::Array { span, .. } => *span,
+            Self::Integer { span, .. } => *span,
+            Self::Float { span, .. } => *span,
+            Self::String { span, .. } => *span,
+            Self::Boolean { span, .. } => *span,
+            Self::Null { span } => *span,
+            Self::Variable { span, .. } => *span,
+            Self::Binary { span, .. } => *span,
+            Self::Unary { span, .. } => *span,
+            Self::Call { span, .. } => *span,
+            Self::Array { span, .. } => *span,
+            Self::If(expr) => expr.span,
+            Self::While(expr) => expr.span,
+            Self::For(expr) => expr.span,
+            Self::Loop(expr) => expr.span,
+            Self::Match(expr) => expr.span,
+            Self::Range(expr) => expr.span,
         }
     }
 }

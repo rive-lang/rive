@@ -3,10 +3,15 @@
 //! This crate provides parsing of token streams into Abstract Syntax Trees (ASTs).
 
 pub mod ast;
+pub mod control_flow;
 mod parser;
+mod parser_control_flow;
 
 pub use ast::{
     BinaryOperator, Block, Expression, Function, Item, Parameter, Program, Statement, UnaryOperator,
+};
+pub use control_flow::{
+    Break, Continue, ElseIf, For, If, Loop, Match, MatchArm, Pattern, Range, While,
 };
 pub use parser::Parser;
 

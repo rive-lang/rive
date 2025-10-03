@@ -2,6 +2,8 @@
 
 use rive_core::{span::Span, type_system::TypeId};
 
+use crate::{RirBlock, RirPattern};
+
 /// Binary operators
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
@@ -96,6 +98,31 @@ pub enum RirExpression {
         element_type: TypeId,
         span: Span,
     },
+
+    /// If expression (must have else branch to be an expression)
+    If {
+        condition: Box<RirExpression>,
+        then_block: RirBlock,
+        else_block: RirBlock,
+        result_type: TypeId,
+        span: Span,
+    },
+
+    /// Match expression
+    Match {
+        scrutinee: Box<RirExpression>,
+        arms: Vec<(RirPattern, Box<RirExpression>)>,
+        result_type: TypeId,
+        span: Span,
+    },
+
+    /// Block expression with result
+    Block {
+        block: RirBlock,
+        result: Option<Box<RirExpression>>,
+        result_type: TypeId,
+        span: Span,
+    },
 }
 
 impl RirExpression {
@@ -113,7 +140,10 @@ impl RirExpression {
             | Self::Unary { span, .. }
             | Self::Call { span, .. }
             | Self::ArrayLiteral { span, .. }
-            | Self::Index { span, .. } => *span,
+            | Self::Index { span, .. }
+            | Self::If { span, .. }
+            | Self::Match { span, .. }
+            | Self::Block { span, .. } => *span,
         }
     }
 
@@ -141,6 +171,18 @@ impl RirExpression {
             }
             | Self::Index {
                 element_type: type_id,
+                ..
+            }
+            | Self::If {
+                result_type: type_id,
+                ..
+            }
+            | Self::Match {
+                result_type: type_id,
+                ..
+            }
+            | Self::Block {
+                result_type: type_id,
                 ..
             } => *type_id,
             Self::ArrayLiteral { element_type, .. } => *element_type,

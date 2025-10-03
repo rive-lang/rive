@@ -97,15 +97,20 @@ impl CodeGenerator {
             statements.push(self.generate_statement(stmt)?);
         }
 
-        // Handle final expression if present
-        if let Some(final_expr) = &block.final_expr {
+        // Handle final expression if present (without semicolon for implicit return)
+        let result = if let Some(final_expr) = &block.final_expr {
             let expr = self.generate_expression(final_expr)?;
-            statements.push(quote! { #expr });
-        }
+            quote! {
+                #(#statements)*
+                #expr
+            }
+        } else {
+            quote! {
+                #(#statements)*
+            }
+        };
 
-        Ok(quote! {
-            #(#statements)*
-        })
+        Ok(result)
     }
 
     /// Generates code for a RIR statement.
@@ -197,17 +202,11 @@ impl CodeGenerator {
                 }
             }
             RirStatement::While {
-                condition, body, ..
-            } => {
-                let cond = self.generate_expression(condition)?;
-                let loop_body = self.generate_block(body)?;
-
-                Ok(quote! {
-                    while #cond {
-                        #loop_body
-                    }
-                })
-            }
+                condition,
+                body,
+                label,
+                ..
+            } => self.generate_while(condition, body, label),
             RirStatement::Block { block, .. } => {
                 let body = self.generate_block(block)?;
                 Ok(quote! {
@@ -216,6 +215,26 @@ impl CodeGenerator {
                     }
                 })
             }
+
+            RirStatement::For {
+                variable,
+                start,
+                end,
+                inclusive,
+                body,
+                label,
+                ..
+            } => self.generate_for(variable, start, end, *inclusive, body, label),
+
+            RirStatement::Loop { body, label, .. } => self.generate_loop(body, label),
+
+            RirStatement::Break { label, value, .. } => self.generate_break(label, value),
+
+            RirStatement::Continue { label, .. } => self.generate_continue(label),
+
+            RirStatement::Match {
+                scrutinee, arms, ..
+            } => self.generate_match_stmt(scrutinee, arms),
         }
     }
 
@@ -269,7 +288,9 @@ impl CodeGenerator {
                     BinaryOp::Or => quote! { || },
                 };
 
-                Ok(quote! { (#left_expr #operator #right_expr) })
+                // Don't add parentheses for top-level binary expressions
+                // The Rust compiler will handle precedence correctly
+                Ok(quote! { #left_expr #operator #right_expr })
             }
             RirExpression::Unary { op, operand, .. } => {
                 let operand_expr = self.generate_expression(operand)?;
@@ -300,8 +321,19 @@ impl CodeGenerator {
                         .map(|arg| self.generate_expression(arg))
                         .collect::<Result<Vec<_>>>()?;
 
-                    // Create format string with {:?} for each argument (Debug formatting)
-                    let format_str = vec!["{:?}"; arguments.len()].join(" ");
+                    // Create format string - use {} for strings, {:?} for others
+                    let format_parts: Vec<String> = arguments
+                        .iter()
+                        .map(|arg| {
+                            // Check if this is a string type
+                            if arg.type_id() == rive_core::type_system::TypeId::TEXT {
+                                "{}".to_string()
+                            } else {
+                                "{:?}".to_string()
+                            }
+                        })
+                        .collect();
+                    let format_str = format_parts.join(" ");
 
                     return Ok(quote! {
                         println!(#format_str, #(#args),*)
@@ -338,6 +370,19 @@ impl CodeGenerator {
                     #array_expr[#index_expr]
                 })
             }
+
+            RirExpression::If {
+                condition,
+                then_block,
+                else_block,
+                ..
+            } => self.generate_if_expr(condition, then_block, else_block),
+
+            RirExpression::Match {
+                scrutinee, arms, ..
+            } => self.generate_match_expr(scrutinee, arms),
+
+            RirExpression::Block { block, result, .. } => self.generate_block_expr(block, result),
         }
     }
 
@@ -425,6 +470,17 @@ impl CodeGenerator {
                 RirStatement::While { body, .. } => {
                     count += self.count_statements(body);
                 }
+                RirStatement::For { body, .. } => {
+                    count += self.count_statements(body);
+                }
+                RirStatement::Loop { body, .. } => {
+                    count += self.count_statements(body);
+                }
+                RirStatement::Match { arms, .. } => {
+                    for (_, arm_body) in arms {
+                        count += self.count_statements(arm_body);
+                    }
+                }
                 _ => {} // Other statements don't contain nested blocks
             }
         }
@@ -437,7 +493,6 @@ impl CodeGenerator {
     fn has_complex_control_flow(&self, block: &RirBlock) -> bool {
         for stmt in &block.statements {
             match stmt {
-                RirStatement::While { .. } => return true, // Loops are complex
                 RirStatement::Block { block, .. } => {
                     if self.has_complex_control_flow(block) {
                         return true;
@@ -456,6 +511,21 @@ impl CodeGenerator {
                     {
                         return true;
                     }
+                }
+                RirStatement::While { .. }
+                | RirStatement::For { .. }
+                | RirStatement::Loop { .. } => {
+                    // Loops are always complex
+                    return true;
+                }
+                RirStatement::Match { arms, .. } => {
+                    // Match is complex
+                    for (_, arm_body) in arms {
+                        if self.has_complex_control_flow(arm_body) {
+                            return true;
+                        }
+                    }
+                    return true;
                 }
                 _ => {} // Other statements are simple
             }
@@ -513,9 +583,18 @@ impl CodeGenerator {
                         return true;
                     }
                 }
-                RirStatement::While { body, .. } => {
+                RirStatement::While { body, .. }
+                | RirStatement::For { body, .. }
+                | RirStatement::Loop { body, .. } => {
                     if self.check_recursive_calls_in_block(body, function_name) {
                         return true;
+                    }
+                }
+                RirStatement::Match { arms, .. } => {
+                    for (_, arm_body) in arms {
+                        if self.check_recursive_calls_in_block(arm_body, function_name) {
+                            return true;
+                        }
                     }
                 }
                 _ => {} // Other statements don't contain expressions
@@ -543,6 +622,9 @@ impl CodeGenerator {
         }
     }
 }
+
+// Include control flow code generation implementation
+include!("codegen_control_flow.rs");
 
 impl Default for CodeGenerator {
     fn default() -> Self {

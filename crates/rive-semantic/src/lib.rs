@@ -6,6 +6,7 @@
 
 mod symbol_table;
 mod type_checker;
+mod type_checker_control_flow;
 
 pub use symbol_table::{Symbol, SymbolTable};
 pub use type_checker::TypeChecker;

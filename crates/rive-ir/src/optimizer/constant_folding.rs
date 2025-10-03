@@ -97,6 +97,13 @@ fn fold_statement(statement: &mut RirStatement) -> bool {
             changed
         }
         RirStatement::Return { value: None, .. } => false,
+
+        // TODO: Phase 6 - Implement constant folding for control flow
+        RirStatement::For { .. }
+        | RirStatement::Loop { .. }
+        | RirStatement::Break { .. }
+        | RirStatement::Continue { .. }
+        | RirStatement::Match { .. } => false,
     }
 }
 

@@ -7,6 +7,35 @@ use rive_core::{
 
 use crate::{RirBlock, RirExpression};
 
+/// A pattern in RIR (used in match expressions)
+#[derive(Debug, Clone)]
+pub enum RirPattern {
+    /// Integer literal pattern
+    IntLiteral { value: i64, span: Span },
+    /// Float literal pattern
+    FloatLiteral { value: f64, span: Span },
+    /// String literal pattern
+    StringLiteral { value: String, span: Span },
+    /// Boolean literal pattern
+    BoolLiteral { value: bool, span: Span },
+    /// Wildcard pattern (_)
+    Wildcard { span: Span },
+}
+
+impl RirPattern {
+    /// Returns the span of this pattern
+    #[must_use]
+    pub const fn span(&self) -> Span {
+        match self {
+            Self::IntLiteral { span, .. }
+            | Self::FloatLiteral { span, .. }
+            | Self::StringLiteral { span, .. }
+            | Self::BoolLiteral { span, .. }
+            | Self::Wildcard { span } => *span,
+        }
+    }
+}
+
 /// A statement in RIR
 #[derive(Debug, Clone)]
 pub enum RirStatement {
@@ -74,6 +103,64 @@ pub enum RirStatement {
         condition: Box<RirExpression>,
         /// Loop body
         body: RirBlock,
+        /// Optional label for multi-level break/continue
+        label: Option<String>,
+        /// Source location
+        span: Span,
+    },
+
+    /// For loop (range iteration)
+    For {
+        /// Iterator variable name
+        variable: String,
+        /// Start of range
+        start: Box<RirExpression>,
+        /// End of range
+        end: Box<RirExpression>,
+        /// Whether range is inclusive (..=) or exclusive (..)
+        inclusive: bool,
+        /// Loop body
+        body: RirBlock,
+        /// Optional label for multi-level break/continue
+        label: Option<String>,
+        /// Source location
+        span: Span,
+    },
+
+    /// Infinite loop
+    Loop {
+        /// Loop body
+        body: RirBlock,
+        /// Optional label for multi-level break/continue
+        label: Option<String>,
+        /// Source location
+        span: Span,
+    },
+
+    /// Break statement
+    Break {
+        /// Target label for multi-level break
+        label: Option<String>,
+        /// Optional value to return from loop
+        value: Option<Box<RirExpression>>,
+        /// Source location
+        span: Span,
+    },
+
+    /// Continue statement
+    Continue {
+        /// Target label for multi-level continue
+        label: Option<String>,
+        /// Source location
+        span: Span,
+    },
+
+    /// Match statement (converted to if-else chain in Phase 1)
+    Match {
+        /// Value to match against
+        scrutinee: Box<RirExpression>,
+        /// Match arms (pattern, body)
+        arms: Vec<(RirPattern, RirBlock)>,
         /// Source location
         span: Span,
     },
@@ -106,6 +193,11 @@ impl RirStatement {
             | Self::Return { span, .. }
             | Self::If { span, .. }
             | Self::While { span, .. }
+            | Self::For { span, .. }
+            | Self::Loop { span, .. }
+            | Self::Break { span, .. }
+            | Self::Continue { span, .. }
+            | Self::Match { span, .. }
             | Self::Expression { span, .. }
             | Self::Block { span, .. } => *span,
         }
@@ -117,10 +209,28 @@ impl RirStatement {
         matches!(self, Self::Return { .. })
     }
 
-    /// Returns true if this is a control flow statement (if, while)
+    /// Returns true if this is a control flow statement
     #[must_use]
     pub const fn is_control_flow(&self) -> bool {
-        matches!(self, Self::If { .. } | Self::While { .. })
+        matches!(
+            self,
+            Self::If { .. }
+                | Self::While { .. }
+                | Self::For { .. }
+                | Self::Loop { .. }
+                | Self::Break { .. }
+                | Self::Continue { .. }
+                | Self::Match { .. }
+        )
+    }
+
+    /// Returns true if this is a loop statement
+    #[must_use]
+    pub const fn is_loop(&self) -> bool {
+        matches!(
+            self,
+            Self::While { .. } | Self::For { .. } | Self::Loop { .. }
+        )
     }
 }
 

@@ -46,4 +46,4 @@ pub use expression::{BinaryOp, RirExpression, UnaryOp};
 pub use lowering::AstLowering;
 pub use module::{RirBlock, RirFunction, RirModule, RirParameter};
 pub use optimizer::{ConstantFoldingPass, DeadCodeEliminationPass, OptimizationPass, Optimizer};
-pub use statement::RirStatement;
+pub use statement::{RirPattern, RirStatement};

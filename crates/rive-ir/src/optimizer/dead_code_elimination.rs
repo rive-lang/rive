@@ -173,6 +173,51 @@ fn collect_used_in_statement(statement: &RirStatement, used: &mut HashSet<String
             }
         }
         RirStatement::Return { value: None, .. } => {}
+
+        RirStatement::For {
+            start,
+            end,
+            body,
+            ..
+        } => {
+            collect_used_in_expression(start, used);
+            collect_used_in_expression(end, used);
+            for stmt in &body.statements {
+                collect_used_in_statement(stmt, used);
+            }
+            if let Some(final_expr) = &body.final_expr {
+                collect_used_in_expression(final_expr, used);
+            }
+        }
+        RirStatement::Loop { body, .. } => {
+            for stmt in &body.statements {
+                collect_used_in_statement(stmt, used);
+            }
+            if let Some(final_expr) = &body.final_expr {
+                collect_used_in_expression(final_expr, used);
+            }
+        }
+        RirStatement::Break { value, .. } => {
+            if let Some(val_expr) = value {
+                collect_used_in_expression(val_expr, used);
+            }
+        }
+        RirStatement::Continue { .. } => {
+            // Continue doesn't use any variables
+        }
+        RirStatement::Match {
+            scrutinee, arms, ..
+        } => {
+            collect_used_in_expression(scrutinee, used);
+            for (_, arm_block) in arms {
+                for stmt in &arm_block.statements {
+                    collect_used_in_statement(stmt, used);
+                }
+                if let Some(final_expr) = &arm_block.final_expr {
+                    collect_used_in_expression(final_expr, used);
+                }
+            }
+        }
     }
 }
 
@@ -202,6 +247,43 @@ fn collect_used_in_expression(expr: &RirExpression, used: &mut HashSet<String>) 
         RirExpression::Index { array, index, .. } => {
             collect_used_in_expression(array, used);
             collect_used_in_expression(index, used);
+        }
+        RirExpression::If {
+            condition,
+            then_block,
+            else_block,
+            ..
+        } => {
+            collect_used_in_expression(condition, used);
+            for stmt in &then_block.statements {
+                collect_used_in_statement(stmt, used);
+            }
+            if let Some(final_expr) = &then_block.final_expr {
+                collect_used_in_expression(final_expr, used);
+            }
+            for stmt in &else_block.statements {
+                collect_used_in_statement(stmt, used);
+            }
+            if let Some(final_expr) = &else_block.final_expr {
+                collect_used_in_expression(final_expr, used);
+            }
+        }
+        RirExpression::Match { scrutinee, arms, .. } => {
+            collect_used_in_expression(scrutinee, used);
+            for (_pattern, arm_body) in arms {
+                collect_used_in_expression(arm_body, used);
+            }
+        }
+        RirExpression::Block { block, result, .. } => {
+            for stmt in &block.statements {
+                collect_used_in_statement(stmt, used);
+            }
+            if let Some(final_expr) = &block.final_expr {
+                collect_used_in_expression(final_expr, used);
+            }
+            if let Some(result_expr) = result {
+                collect_used_in_expression(result_expr, used);
+            }
         }
         // Literals don't use variables
         _ => {}

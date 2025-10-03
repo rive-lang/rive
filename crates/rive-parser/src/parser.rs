@@ -122,28 +122,27 @@ impl<'a> Parser<'a> {
         let token = self.peek();
 
         match &token.0.kind {
-            TokenKind::TypeInt => {
+            TokenKind::Identifier => {
+                let type_name = token.0.text.clone();
                 self.advance();
-                Ok(self.type_registry.get_int())
-            }
-            TokenKind::TypeFloat => {
-                self.advance();
-                Ok(self.type_registry.get_float())
-            }
-            TokenKind::TypeText => {
-                self.advance();
-                Ok(self.type_registry.get_text())
-            }
-            TokenKind::TypeBool => {
-                self.advance();
-                Ok(self.type_registry.get_bool())
-            }
-            TokenKind::TypeOptional => {
-                self.advance();
-                self.expect(&TokenKind::Less)?;
-                let inner_type = self.parse_type()?;
-                self.expect(&TokenKind::Greater)?;
-                Ok(self.type_registry.get_or_create_optional(inner_type))
+
+                // Handle built-in types by name
+                match type_name.as_str() {
+                    "Int" => Ok(self.type_registry.get_int()),
+                    "Float" => Ok(self.type_registry.get_float()),
+                    "Text" => Ok(self.type_registry.get_text()),
+                    "Bool" => Ok(self.type_registry.get_bool()),
+                    "Optional" => {
+                        self.expect(&TokenKind::Less)?;
+                        let inner_type = self.parse_type()?;
+                        self.expect(&TokenKind::Greater)?;
+                        Ok(self.type_registry.get_or_create_optional(inner_type))
+                    }
+                    _ => {
+                        let span = self.previous_span();
+                        Err(Error::Parser(format!("Unknown type '{}'", type_name), span))
+                    }
+                }
             }
             TokenKind::LeftBracket => {
                 self.advance();
@@ -174,7 +173,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a block of statements.
-    fn parse_block(&mut self) -> Result<Block> {
+    pub(crate) fn parse_block(&mut self) -> Result<Block> {
         let start_span = self.expect(&TokenKind::LeftBrace)?;
         let mut statements = Vec::new();
 
@@ -196,6 +195,12 @@ impl<'a> Parser<'a> {
             self.parse_let_statement()
         } else if self.check(&TokenKind::Return) {
             self.parse_return_statement()
+        } else if self.check(&TokenKind::Break) {
+            let break_stmt = self.parse_break()?;
+            Ok(Statement::Break(break_stmt))
+        } else if self.check(&TokenKind::Continue) {
+            let continue_stmt = self.parse_continue()?;
+            Ok(Statement::Continue(continue_stmt))
         } else {
             self.parse_expression_statement()
         }
@@ -275,7 +280,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses an expression.
-    fn parse_expression(&mut self) -> Result<Expression> {
+    pub(crate) fn parse_expression(&mut self) -> Result<Expression> {
         self.parse_or()
     }
 
@@ -373,7 +378,7 @@ impl<'a> Parser<'a> {
 
     /// Parses addition/subtraction expression.
     fn parse_term(&mut self) -> Result<Expression> {
-        let mut expr = self.parse_factor()?;
+        let mut expr = self.parse_range_expr()?;
 
         while let Some(operator) = self.match_tokens(&[TokenKind::Plus, TokenKind::Minus]) {
             let op = match operator {
@@ -381,7 +386,7 @@ impl<'a> Parser<'a> {
                 TokenKind::Minus => BinaryOperator::Subtract,
                 _ => unreachable!(),
             };
-            let right = self.parse_factor()?;
+            let right = self.parse_range_expr()?;
             let span = expr.span().merge(right.span());
             expr = Expression::Binary {
                 left: Box::new(expr),
@@ -392,6 +397,19 @@ impl<'a> Parser<'a> {
         }
 
         Ok(expr)
+    }
+
+    /// Parses range expression (.. or ..=).
+    fn parse_range_expr(&mut self) -> Result<Expression> {
+        let expr = self.parse_factor()?;
+
+        // Check for range operators
+        if self.check(&TokenKind::DotDot) || self.check(&TokenKind::DotDotEq) {
+            let range = self.parse_range(expr)?;
+            Ok(Expression::Range(Box::new(range)))
+        } else {
+            Ok(expr)
+        }
     }
 
     /// Parses multiplication/division/modulo expression.
@@ -485,8 +503,8 @@ impl<'a> Parser<'a> {
         Ok(arguments)
     }
 
-    /// Parses a primary expression (literals, variables, arrays, parenthesized).
-    fn parse_primary(&mut self) -> Result<Expression> {
+    /// Parses a primary expression (literals, variables, arrays, parenthesized, control flow).
+    pub(crate) fn parse_primary(&mut self) -> Result<Expression> {
         let span = self.current_span();
         let token = self.peek().clone();
 
@@ -545,6 +563,27 @@ impl<'a> Parser<'a> {
                     span: span.merge(end_span),
                 })
             }
+            // Control flow expressions
+            TokenKind::If => {
+                let if_expr = self.parse_if()?;
+                Ok(Expression::If(Box::new(if_expr)))
+            }
+            TokenKind::While => {
+                let while_expr = self.parse_while()?;
+                Ok(Expression::While(Box::new(while_expr)))
+            }
+            TokenKind::For => {
+                let for_expr = self.parse_for()?;
+                Ok(Expression::For(Box::new(for_expr)))
+            }
+            TokenKind::Loop => {
+                let loop_expr = self.parse_loop()?;
+                Ok(Expression::Loop(Box::new(loop_expr)))
+            }
+            TokenKind::Match => {
+                let match_expr = self.parse_match()?;
+                Ok(Expression::Match(Box::new(match_expr)))
+            }
             _ => {
                 let span = self.current_span();
                 Err(Error::Parser(
@@ -573,11 +612,11 @@ impl<'a> Parser<'a> {
 
     // Helper methods
 
-    fn is_at_end(&self) -> bool {
+    pub(crate) fn is_at_end(&self) -> bool {
         self.current >= self.tokens.len()
     }
 
-    fn peek(&self) -> &(Token, Span) {
+    pub(crate) fn peek(&self) -> &(Token, Span) {
         if self.is_at_end() {
             &self.tokens[self.tokens.len() - 1]
         } else {
@@ -585,7 +624,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn check(&self, kind: &TokenKind) -> bool {
+    pub(crate) fn check(&self, kind: &TokenKind) -> bool {
         if self.is_at_end() {
             false
         } else {
@@ -593,7 +632,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn advance(&mut self) {
+    pub(crate) fn check_ahead(&self, offset: usize, kind: &TokenKind) -> bool {
+        self.tokens
+            .get(self.current + offset)
+            .is_some_and(|t| &t.0.kind == kind)
+    }
+
+    pub(crate) fn advance(&mut self) {
         if !self.is_at_end() {
             self.current += 1;
         }
@@ -619,7 +664,7 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn expect(&mut self, kind: &TokenKind) -> Result<Span> {
+    pub(crate) fn expect(&mut self, kind: &TokenKind) -> Result<Span> {
         if self.check(kind) {
             let span = self.current_span();
             self.advance();

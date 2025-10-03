@@ -4,14 +4,17 @@ use rive_core::{
     Error, Result,
     type_system::{MemoryStrategy, TypeId, TypeRegistry},
 };
+use rive_parser::Expression;
 use rive_parser::ast::{
     BinaryOperator, Block as AstBlock, Expression as AstExpression, Function as AstFunction, Item,
     Program, Statement as AstStatement, UnaryOperator,
 };
+use rive_parser::control_flow::{Break, Continue, For, If, Loop, Match, Pattern, Range, While};
 use std::collections::HashMap;
 
 use crate::{
-    BinaryOp, RirBlock, RirExpression, RirFunction, RirModule, RirParameter, RirStatement, UnaryOp,
+    BinaryOp, RirBlock, RirExpression, RirFunction, RirModule, RirParameter, RirPattern,
+    RirStatement, UnaryOp,
 };
 
 /// Symbol information during lowering
@@ -24,11 +27,15 @@ struct SymbolInfo {
 
 /// Converts AST to RIR with type information
 pub struct AstLowering {
-    type_registry: TypeRegistry,
+    pub(crate) type_registry: TypeRegistry,
     /// Local symbol table for tracking variables and their types
     symbols: Vec<HashMap<String, SymbolInfo>>,
     /// Function signatures for function calls
     functions: HashMap<String, (Vec<TypeId>, TypeId)>,
+    /// Current loop nesting depth
+    pub(crate) loop_depth: usize,
+    /// Stack of loop labels for break/continue
+    pub(crate) loop_labels: Vec<Option<String>>,
 }
 
 impl AstLowering {
@@ -39,6 +46,8 @@ impl AstLowering {
             type_registry,
             symbols: vec![HashMap::new()], // Global scope
             functions: HashMap::new(),
+            loop_depth: 0,
+            loop_labels: Vec::new(),
         }
     }
 
@@ -150,7 +159,37 @@ impl AstLowering {
     fn lower_block(&mut self, block: &AstBlock) -> Result<RirBlock> {
         let mut rir_block = RirBlock::new(block.span);
 
-        for stmt in &block.statements {
+        // Check if the last statement is an expression (for implicit return)
+        let statements_count = block.statements.len();
+        
+        for (i, stmt) in block.statements.iter().enumerate() {
+            let is_last = i == statements_count - 1;
+            
+            // If this is the last statement and it's an expression statement,
+            // treat it as the final expression (implicit return)
+            // But only for actual value expressions, not:
+            // - Function calls (which return Unit)
+            // - If/Match expressions (which should be handled as statements unless explicitly used as expressions)
+            if is_last {
+                if let AstStatement::Expression { expression, .. } = stmt {
+                    // Check if this expression produces a value (not Unit)
+                    // Exclude Call, If, and Match as they are typically statements
+                    let should_be_final = !matches!(
+                        expression,
+                        AstExpression::Call { .. } | AstExpression::If(_) | AstExpression::Match(_)
+                    );
+                    
+                    if should_be_final {
+                        let final_expr = self.lower_expression(expression)?;
+                        // Only set as final_expr if it's not Unit type
+                        if final_expr.type_id() != self.type_registry.get_unit() {
+                            rir_block.final_expr = Some(Box::new(final_expr));
+                            continue;
+                        }
+                    }
+                }
+            }
+            
             let rir_stmt = self.lower_statement(stmt)?;
             rir_block.add_statement(rir_stmt);
         }
@@ -198,11 +237,18 @@ impl AstLowering {
             }
 
             AstStatement::Expression { expression, span } => {
-                let rir_expr = self.lower_expression(expression)?;
-                Ok(RirStatement::Expression {
-                    expr: Box::new(rir_expr),
-                    span: *span,
-                })
+                // Special handling for control flow that can be statements
+                match expression {
+                    AstExpression::If(if_expr) => self.lower_if_stmt(if_expr),
+                    AstExpression::Match(match_expr) => self.lower_match_stmt(match_expr),
+                    _ => {
+                        let rir_expr = self.lower_expression(expression)?;
+                        Ok(RirStatement::Expression {
+                            expr: Box::new(rir_expr),
+                            span: *span,
+                        })
+                    }
+                }
             }
 
             AstStatement::Return { value, span } => {
@@ -215,6 +261,9 @@ impl AstLowering {
                     span: *span,
                 })
             }
+
+            AstStatement::Break(break_stmt) => self.lower_break(break_stmt),
+            AstStatement::Continue(continue_stmt) => self.lower_continue(continue_stmt),
         }
     }
 
@@ -340,6 +389,52 @@ impl AstLowering {
                     span: *span,
                 })
             }
+
+            AstExpression::If(if_expr) => self.lower_if_expr(if_expr),
+            AstExpression::While(while_loop) => {
+                // While as expression: convert to statement in block
+                let stmt = self.lower_while(while_loop)?;
+                Ok(RirExpression::Block {
+                    block: RirBlock {
+                        statements: vec![stmt],
+                        final_expr: None,
+                        span: while_loop.span,
+                    },
+                    result: None,
+                    result_type: self.type_registry.get_unit(),
+                    span: while_loop.span,
+                })
+            }
+            AstExpression::For(for_loop) => {
+                // For as expression: convert to statement in block
+                let stmt = self.lower_for(for_loop)?;
+                Ok(RirExpression::Block {
+                    block: RirBlock {
+                        statements: vec![stmt],
+                        final_expr: None,
+                        span: for_loop.span,
+                    },
+                    result: None,
+                    result_type: self.type_registry.get_unit(),
+                    span: for_loop.span,
+                })
+            }
+            AstExpression::Loop(loop_expr) => {
+                // Loop as expression: convert to statement in block
+                let stmt = self.lower_loop(loop_expr)?;
+                Ok(RirExpression::Block {
+                    block: RirBlock {
+                        statements: vec![stmt],
+                        final_expr: None,
+                        span: loop_expr.span,
+                    },
+                    result: None,
+                    result_type: self.type_registry.get_unit(),
+                    span: loop_expr.span,
+                })
+            }
+            AstExpression::Match(match_expr) => self.lower_match_expr(match_expr),
+            AstExpression::Range(range) => self.lower_range(range),
         }
     }
 
@@ -394,6 +489,9 @@ impl AstLowering {
         }
     }
 }
+
+// Include control flow lowering implementation
+include!("lowering_control_flow.rs");
 
 #[cfg(test)]
 mod tests {

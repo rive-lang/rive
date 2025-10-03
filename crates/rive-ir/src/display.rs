@@ -110,6 +110,51 @@ impl fmt::Display for RirStatement {
             Self::Block { block, .. } => {
                 write!(f, "{{\n{block}}}")
             }
+
+            // TODO: Phase 6 - Implement display for new control flow statements
+            Self::For {
+                variable, label, ..
+            } => {
+                if let Some(lbl) = label {
+                    write!(f, "{lbl}: for {variable} in <range> {{ ... }}")
+                } else {
+                    write!(f, "for {variable} in <range> {{ ... }}")
+                }
+            }
+
+            Self::Loop { label, .. } => {
+                if let Some(lbl) = label {
+                    write!(f, "{lbl}: loop {{ ... }}")
+                } else {
+                    write!(f, "loop {{ ... }}")
+                }
+            }
+
+            Self::Break { label, value, .. } => {
+                if let Some(lbl) = label {
+                    if let Some(val) = value {
+                        write!(f, "break {lbl} with {val}")
+                    } else {
+                        write!(f, "break {lbl}")
+                    }
+                } else if let Some(val) = value {
+                    write!(f, "break with {val}")
+                } else {
+                    write!(f, "break")
+                }
+            }
+
+            Self::Continue { label, .. } => {
+                if let Some(lbl) = label {
+                    write!(f, "continue {lbl}")
+                } else {
+                    write!(f, "continue")
+                }
+            }
+
+            Self::Match { .. } => {
+                write!(f, "match {{ ... }}")
+            }
         }
     }
 }
@@ -158,6 +203,11 @@ impl fmt::Display for RirExpression {
             Self::Index { array, index, .. } => {
                 write!(f, "{array}[{index}]")
             }
+
+            // TODO: Phase 6 - Implement display for control flow expressions
+            Self::If { .. } => write!(f, "if {{ ... }} else {{ ... }}"),
+            Self::Match { .. } => write!(f, "match {{ ... }}"),
+            Self::Block { .. } => write!(f, "{{ ... }}"),
         }
     }
 }

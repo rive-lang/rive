@@ -1,6 +1,7 @@
 //! Type checking for Rive programs.
 
 use crate::symbol_table::{Symbol, SymbolTable};
+use crate::type_checker_control_flow::LoopContext;
 use rive_core::type_system::TypeId;
 use rive_core::{Error, Result};
 use rive_parser::ast::{Block, Expression, Function, Item, Program, Statement};
@@ -11,9 +12,11 @@ use rive_parser::ast::{Block, Expression, Function, Item, Program, Statement};
 /// ensuring type safety and proper variable usage.
 pub struct TypeChecker {
     /// Symbol table for tracking variables and functions
-    symbols: SymbolTable,
+    pub(crate) symbols: SymbolTable,
     /// The expected return type of the current function
     current_function_return_type: Option<TypeId>,
+    /// Stack of loop contexts for break/continue validation
+    pub(crate) loop_stack: Vec<LoopContext>,
 }
 
 impl TypeChecker {
@@ -22,6 +25,7 @@ impl TypeChecker {
         Self {
             symbols: SymbolTable::new(),
             current_function_return_type: None,
+            loop_stack: Vec::new(),
         }
     }
 
@@ -84,7 +88,7 @@ impl TypeChecker {
     }
 
     /// Checks a block of statements.
-    fn check_block(&mut self, block: &Block) -> Result<()> {
+    pub(crate) fn check_block(&mut self, block: &Block) -> Result<()> {
         for statement in &block.statements {
             self.check_statement(statement)?;
         }
@@ -92,7 +96,7 @@ impl TypeChecker {
     }
 
     /// Checks a statement.
-    fn check_statement(&mut self, statement: &Statement) -> Result<()> {
+    pub(crate) fn check_statement(&mut self, statement: &Statement) -> Result<()> {
         match statement {
             Statement::Let {
                 name,
@@ -159,8 +163,23 @@ impl TypeChecker {
             }
 
             Statement::Expression { expression, .. } => {
-                self.check_expression(expression)?;
-                Ok(())
+                // Special handling for control flow structures that can be both expressions and statements
+                match expression {
+                    Expression::If(if_expr) => {
+                        // If used as statement, doesn't require else branch
+                        self.check_if(if_expr, false)?;
+                        Ok(())
+                    }
+                    Expression::Match(match_expr) => {
+                        // Match used as statement
+                        self.check_match(match_expr, false)?;
+                        Ok(())
+                    }
+                    _ => {
+                        self.check_expression(expression)?;
+                        Ok(())
+                    }
+                }
             }
 
             Statement::Return { value, span } => {
@@ -191,11 +210,21 @@ impl TypeChecker {
 
                 Ok(())
             }
+
+            Statement::Break(break_stmt) => {
+                self.check_break(break_stmt)?;
+                Ok(())
+            }
+
+            Statement::Continue(continue_stmt) => {
+                self.check_continue(continue_stmt)?;
+                Ok(())
+            }
         }
     }
 
     /// Checks an expression and returns its type.
-    fn check_expression(&mut self, expr: &Expression) -> Result<TypeId> {
+    pub(crate) fn check_expression(&mut self, expr: &Expression) -> Result<TypeId> {
         match expr {
             Expression::Integer { .. } => Ok(self.symbols.type_registry().get_int()),
             Expression::Float { .. } => Ok(self.symbols.type_registry().get_float()),
@@ -419,6 +448,22 @@ impl TypeChecker {
                     .get_or_create_array(first_type, elements.len());
                 Ok(array_type)
             }
+
+            // Control flow expressions
+            Expression::If(if_expr) => {
+                // If is used as expression, so needs value
+                self.check_if(if_expr, true)
+            }
+
+            Expression::While(while_loop) => self.check_while(while_loop),
+
+            Expression::For(for_loop) => self.check_for(for_loop),
+
+            Expression::Loop(loop_expr) => self.check_loop(loop_expr),
+
+            Expression::Match(match_expr) => self.check_match(match_expr, true),
+
+            Expression::Range(range) => self.check_range(range),
         }
     }
 
