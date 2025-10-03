@@ -211,13 +211,18 @@ impl TypeChecker {
 
         let mut arm_types = Vec::new();
         let mut has_wildcard = false;
+        let mut has_true = false;
+        let mut has_false = false;
 
         for arm in &match_expr.arms {
             // Check pattern matches scrutinee type
             self.check_pattern(&arm.pattern, scrutinee_type)?;
 
-            if matches!(arm.pattern, Pattern::Wildcard { .. }) {
-                has_wildcard = true;
+            match arm.pattern {
+                Pattern::Wildcard { .. } => has_wildcard = true,
+                Pattern::Boolean { value: true, .. } => has_true = true,
+                Pattern::Boolean { value: false, .. } => has_false = true,
+                _ => {}
             }
 
             // Check arm body type
@@ -225,10 +230,13 @@ impl TypeChecker {
             arm_types.push(arm_type);
         }
 
-        // Require wildcard for exhaustiveness (Phase 1 simplification)
-        if !has_wildcard {
+        // Check exhaustiveness
+        let is_exhaustive = has_wildcard
+            || (scrutinee_type == self.symbols.type_registry().get_bool() && has_true && has_false);
+
+        if !is_exhaustive {
             return Err(Error::SemanticWithSpan(
-                "Match must have a wildcard '_' pattern for exhaustiveness".to_string(),
+                "Match must be exhaustive (add a wildcard '_' pattern or cover all cases)".to_string(),
                 match_expr.span,
             ));
         }
@@ -258,7 +266,7 @@ impl TypeChecker {
     }
 
     /// Checks a pattern against expected type.
-    fn check_pattern(&self, pattern: &Pattern, expected_type: TypeId) -> Result<()> {
+    fn check_pattern(&mut self, pattern: &Pattern, expected_type: TypeId) -> Result<()> {
         let pattern_type = match pattern {
             Pattern::Integer { .. } => self.symbols.type_registry().get_int(),
             Pattern::Float { .. } => self.symbols.type_registry().get_float(),
@@ -271,6 +279,33 @@ impl TypeChecker {
                 ));
             }
             Pattern::Wildcard { .. } => return Ok(()), // Wildcard matches any type
+            Pattern::Range { start, end, .. } => {
+                // Check that start and end expressions are compatible with expected type
+                let start_type = self.check_expression(start)?;
+                let end_type = self.check_expression(end)?;
+                
+                if start_type != expected_type {
+                    let registry = self.symbols.type_registry();
+                    let expected_str = registry.get_type_name(expected_type);
+                    let start_str = registry.get_type_name(start_type);
+                    return Err(Error::SemanticWithSpan(
+                        format!("Range start type mismatch: expected '{expected_str}', found '{start_str}'"),
+                        start.span(),
+                    ));
+                }
+                
+                if end_type != expected_type {
+                    let registry = self.symbols.type_registry();
+                    let expected_str = registry.get_type_name(expected_type);
+                    let end_str = registry.get_type_name(end_type);
+                    return Err(Error::SemanticWithSpan(
+                        format!("Range end type mismatch: expected '{expected_str}', found '{end_str}'"),
+                        end.span(),
+                    ));
+                }
+                
+                return Ok(());
+            }
         };
 
         if pattern_type != expected_type {

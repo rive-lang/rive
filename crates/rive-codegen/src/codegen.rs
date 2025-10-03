@@ -267,10 +267,20 @@ impl CodeGenerator {
                 Ok(quote! { #var_name })
             }
             RirExpression::Binary {
-                op, left, right, ..
+                op,
+                left,
+                right,
+                result_type,
+                ..
             } => {
                 let left_expr = self.generate_expression(left)?;
                 let right_expr = self.generate_expression(right)?;
+
+                // Special handling for string concatenation
+                if *op == BinaryOp::Add && *result_type == rive_core::type_system::TypeId::TEXT {
+                    // String concatenation: use format! macro for clean code
+                    return Ok(quote! { format!("{}{}", #left_expr, #right_expr) });
+                }
 
                 let operator = match op {
                     BinaryOp::Add => quote! { + },
@@ -333,7 +343,8 @@ impl CodeGenerator {
                             }
                         })
                         .collect();
-                    let format_str = format_parts.join(" ");
+                    // Don't add spaces between arguments - let user control formatting
+                    let format_str = format_parts.join("");
 
                     return Ok(quote! {
                         println!(#format_str, #(#args),*)
@@ -383,6 +394,27 @@ impl CodeGenerator {
             } => self.generate_match_expr(scrutinee, arms),
 
             RirExpression::Block { block, result, .. } => self.generate_block_expr(block, result),
+
+            RirExpression::While {
+                condition,
+                body,
+                label,
+                result_type,
+                ..
+            } => self.generate_while_expr(condition, body, label, *result_type),
+
+            RirExpression::For {
+                variable,
+                start,
+                end,
+                inclusive,
+                body,
+                label,
+                result_type,
+                ..
+            } => self.generate_for_expr(variable, start, end, *inclusive, body, label, *result_type),
+
+            RirExpression::Loop { body, label, result_type, .. } => self.generate_loop_expr(body, label, *result_type),
         }
     }
 

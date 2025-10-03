@@ -208,6 +208,9 @@ impl fmt::Display for RirExpression {
             Self::If { .. } => write!(f, "if {{ ... }} else {{ ... }}"),
             Self::Match { .. } => write!(f, "match {{ ... }}"),
             Self::Block { .. } => write!(f, "{{ ... }}"),
+            Self::While { .. } => write!(f, "while {{ ... }}"),
+            Self::For { .. } => write!(f, "for {{ ... }}"),
+            Self::Loop { .. } => write!(f, "loop {{ ... }}"),
         }
     }
 }

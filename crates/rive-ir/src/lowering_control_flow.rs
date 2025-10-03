@@ -86,8 +86,8 @@ impl AstLowering {
         })
     }
 
-    /// Lowers a while loop to RIR.
-    pub(crate) fn lower_while(&mut self, while_loop: &While) -> Result<RirStatement> {
+    /// Lowers a while loop expression to RIR.
+    pub(crate) fn lower_while_expr(&mut self, while_loop: &While) -> Result<RirExpression> {
         let condition = Box::new(self.lower_expression(&while_loop.condition)?);
         
         // Enter loop context for label generation
@@ -98,16 +98,20 @@ impl AstLowering {
         // Exit loop context
         self.exit_loop();
 
-        Ok(RirStatement::While {
+        // Get result type from break with value or Unit if none
+        let result_type = self.infer_loop_result_type(&body);
+
+        Ok(RirExpression::While {
             condition,
             body,
             label,
+            result_type,
             span: while_loop.span,
         })
     }
 
-    /// Lowers a for loop to RIR.
-    pub(crate) fn lower_for(&mut self, for_loop: &For) -> Result<RirStatement> {
+    /// Lowers a for loop expression to RIR.
+    pub(crate) fn lower_for_expr(&mut self, for_loop: &For) -> Result<RirExpression> {
         // Extract range from iterable
         let (start, end, inclusive) = match &*for_loop.iterable {
             Expression::Range(range) => {
@@ -140,19 +144,23 @@ impl AstLowering {
         // Exit scope
         self.exit_scope();
 
-        Ok(RirStatement::For {
+        // Get result type from break with value or Unit if none
+        let result_type = self.infer_loop_result_type(&body);
+
+        Ok(RirExpression::For {
             variable: for_loop.variable.clone(),
             start,
             end,
             inclusive,
             body,
             label,
+            result_type,
             span: for_loop.span,
         })
     }
 
-    /// Lowers an infinite loop to RIR.
-    pub(crate) fn lower_loop(&mut self, loop_expr: &Loop) -> Result<RirStatement> {
+    /// Lowers an infinite loop expression to RIR.
+    pub(crate) fn lower_loop_expr(&mut self, loop_expr: &Loop) -> Result<RirExpression> {
         // Enter loop context for label generation
         let label = self.enter_loop();
 
@@ -161,11 +169,66 @@ impl AstLowering {
         // Exit loop context
         self.exit_loop();
 
-        Ok(RirStatement::Loop {
+        // Get result type from break with value or Unit if none
+        let result_type = self.infer_loop_result_type(&body);
+
+        Ok(RirExpression::Loop {
             body,
             label,
+            result_type,
             span: loop_expr.span,
         })
+    }
+
+    /// Infers the result type of a loop by finding break statements with values.
+    fn infer_loop_result_type(&self, body: &RirBlock) -> TypeId {
+        // Look for break statements with values in the body
+        for stmt in &body.statements {
+            if let Some(type_id) = self.find_break_value_type(stmt) {
+                return type_id;
+            }
+        }
+        
+        // No break with value found, return Unit
+        self.type_registry.get_unit()
+    }
+
+    /// Recursively find break statement with value and return its type.
+    fn find_break_value_type(&self, stmt: &RirStatement) -> Option<TypeId> {
+        match stmt {
+            RirStatement::Break { value, .. } => {
+                // If break has a value, return its type
+                value.as_ref().map(|v| v.type_id())
+            }
+            RirStatement::If { then_block, else_block, .. } => {
+                // Check both branches
+                for s in &then_block.statements {
+                    if let Some(type_id) = self.find_break_value_type(s) {
+                        return Some(type_id);
+                    }
+                }
+                if let Some(else_b) = else_block {
+                    for s in &else_b.statements {
+                        if let Some(type_id) = self.find_break_value_type(s) {
+                            return Some(type_id);
+                        }
+                    }
+                }
+                None
+            }
+            RirStatement::Match { arms, .. } => {
+                // Check all arms
+                for (_pattern, body) in arms {
+                    for s in &body.statements {
+                        if let Some(type_id) = self.find_break_value_type(s) {
+                            return Some(type_id);
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
     /// Lowers a break statement to RIR.
@@ -266,7 +329,7 @@ impl AstLowering {
     }
 
     /// Lowers a pattern to RIR.
-    fn lower_pattern(&self, pattern: &Pattern) -> Result<RirPattern> {
+    fn lower_pattern(&mut self, pattern: &Pattern) -> Result<RirPattern> {
         Ok(match pattern {
             Pattern::Integer { value, span } => RirPattern::IntLiteral {
                 value: *value,
@@ -290,6 +353,16 @@ impl AstLowering {
                 ));
             }
             Pattern::Wildcard { span } => RirPattern::Wildcard { span: *span },
+            Pattern::Range { start, end, inclusive, span } => {
+                let start_expr = self.lower_expression(start)?;
+                let end_expr = self.lower_expression(end)?;
+                RirPattern::RangePattern {
+                    start: Box::new(start_expr),
+                    end: Box::new(end_expr),
+                    inclusive: *inclusive,
+                    span: *span,
+                }
+            }
         })
     }
 

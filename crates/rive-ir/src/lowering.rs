@@ -392,50 +392,40 @@ impl AstLowering {
 
             AstExpression::If(if_expr) => self.lower_if_expr(if_expr),
             AstExpression::While(while_loop) => {
-                // While as expression: convert to statement in block
-                let stmt = self.lower_while(while_loop)?;
-                Ok(RirExpression::Block {
-                    block: RirBlock {
-                        statements: vec![stmt],
-                        final_expr: None,
-                        span: while_loop.span,
-                    },
-                    result: None,
-                    result_type: self.type_registry.get_unit(),
-                    span: while_loop.span,
-                })
+                // While as expression: lower directly as expression
+                self.lower_while_expr(while_loop)
             }
             AstExpression::For(for_loop) => {
-                // For as expression: convert to statement in block
-                let stmt = self.lower_for(for_loop)?;
-                Ok(RirExpression::Block {
-                    block: RirBlock {
-                        statements: vec![stmt],
-                        final_expr: None,
-                        span: for_loop.span,
-                    },
-                    result: None,
-                    result_type: self.type_registry.get_unit(),
-                    span: for_loop.span,
-                })
+                // For as expression: lower directly as expression
+                self.lower_for_expr(for_loop)
             }
             AstExpression::Loop(loop_expr) => {
-                // Loop as expression: convert to statement in block
-                let stmt = self.lower_loop(loop_expr)?;
-                Ok(RirExpression::Block {
-                    block: RirBlock {
-                        statements: vec![stmt],
-                        final_expr: None,
-                        span: loop_expr.span,
-                    },
-                    result: None,
-                    result_type: self.type_registry.get_unit(),
-                    span: loop_expr.span,
-                })
+                // Loop as expression: lower directly as expression
+                self.lower_loop_expr(loop_expr)
             }
             AstExpression::Match(match_expr) => self.lower_match_expr(match_expr),
             AstExpression::Range(range) => self.lower_range(range),
+            AstExpression::Block(block) => self.lower_block_expr(block),
         }
+    }
+
+    /// Lowers a block expression to RIR.
+    fn lower_block_expr(&mut self, block: &rive_parser::Block) -> Result<RirExpression> {
+        let rir_block = self.lower_block(block)?;
+        
+        // Check if the block has a final expression
+        let (result, result_type) = if let Some(ref final_expr) = rir_block.final_expr {
+            (rir_block.final_expr.clone(), final_expr.type_id())
+        } else {
+            (None, self.type_registry.get_unit())
+        };
+
+        Ok(RirExpression::Block {
+            block: rir_block,
+            result,
+            result_type,
+            span: block.span,
+        })
     }
 
     /// Converts AST binary operator to RIR binary operator

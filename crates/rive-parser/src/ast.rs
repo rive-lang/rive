@@ -141,6 +141,9 @@ pub enum Expression {
 
     /// Range expression: `start..end` or `start..=end`
     Range(Box<crate::control_flow::Range>),
+
+    /// Block expression: `{ statements... }`
+    Block(Box<Block>),
 }
 
 impl Expression {
@@ -164,6 +167,7 @@ impl Expression {
             Self::Loop(expr) => expr.span,
             Self::Match(expr) => expr.span,
             Self::Range(expr) => expr.span,
+            Self::Block(block) => block.span,
         }
     }
 }

@@ -1,11 +1,11 @@
 //! Compiler pipeline implementation.
 //!
-//! Pipeline: Source → Lexer → Parser → AST → Semantic → RIR → Optimizer → CodeGen → Rust
+//! Pipeline: Source → Lexer → Parser → AST → Semantic → RIR → CodeGen → Rust
 
 use anyhow::{Context, Result};
 use rive_codegen::CodeGenerator;
 use rive_core::type_system::TypeRegistry;
-use rive_ir::{AstLowering, Optimizer};
+use rive_ir::AstLowering;
 use rive_lexer::tokenize;
 use rive_parser::parse;
 use rive_utils::Config;
@@ -84,16 +84,12 @@ impl Compiler {
         // AST → RIR lowering
         let type_registry = TypeRegistry::new();
         let mut lowering = AstLowering::new(type_registry);
-        let mut rir_module = lowering.lower_program(&ast).map_err(|e| {
+        let rir_module = lowering.lower_program(&ast).map_err(|e| {
             let report = miette::Report::new(e)
                 .with_source_code(miette::NamedSource::new("main.rive", source.clone()));
             eprintln!("{report:?}");
             anyhow::anyhow!("RIR lowering failed")
         })?;
-
-        // RIR optimization
-        let optimizer = Optimizer::new(); // Default passes: constant folding + dead code elimination
-        optimizer.optimize(&mut rir_module);
 
         // Code generation (RIR → Rust)
         let mut codegen = CodeGenerator::new();
@@ -195,16 +191,12 @@ impl Compiler {
         // AST → RIR lowering (to verify it can lower)
         let type_registry = TypeRegistry::new();
         let mut lowering = AstLowering::new(type_registry);
-        let mut rir_module = lowering.lower_program(&ast).map_err(|e| {
+        let rir_module = lowering.lower_program(&ast).map_err(|e| {
             let report = miette::Report::new(e)
                 .with_source_code(miette::NamedSource::new("main.rive", source.clone()));
             eprintln!("{report:?}");
             anyhow::anyhow!("RIR lowering failed")
         })?;
-
-        // RIR optimization
-        let optimizer = Optimizer::new();
-        optimizer.optimize(&mut rir_module);
 
         // Code generation (to verify it can generate)
         let mut codegen = CodeGenerator::new();

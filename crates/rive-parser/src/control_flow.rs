@@ -157,6 +157,14 @@ pub enum Pattern {
 
     /// Wildcard pattern: `_` (matches anything)
     Wildcard { span: Span },
+
+    /// Range pattern: `in start..end` or `in start..=end`
+    Range { 
+        start: Box<Expression>, 
+        end: Box<Expression>, 
+        inclusive: bool, 
+        span: Span 
+    },
     // Future patterns (not implemented yet):
     // Variable { name: String, span: Span },
     // Tuple { elements: Vec<Pattern>, span: Span },
@@ -173,7 +181,8 @@ impl Pattern {
             | Self::String { span, .. }
             | Self::Boolean { span, .. }
             | Self::Null { span }
-            | Self::Wildcard { span } => *span,
+            | Self::Wildcard { span }
+            | Self::Range { span, .. } => *span,
         }
     }
 }

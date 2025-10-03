@@ -37,7 +37,6 @@ mod display;
 mod expression;
 mod lowering;
 mod module;
-mod optimizer;
 mod statement;
 
 // Re-export main types
@@ -45,5 +44,4 @@ pub use builder::{BlockBuilder, ExprBuilder, RirBuilder};
 pub use expression::{BinaryOp, RirExpression, UnaryOp};
 pub use lowering::AstLowering;
 pub use module::{RirBlock, RirFunction, RirModule, RirParameter};
-pub use optimizer::{ConstantFoldingPass, DeadCodeEliminationPass, OptimizationPass, Optimizer};
 pub use statement::{RirPattern, RirStatement};

@@ -2,7 +2,7 @@
 
 use rive_codegen::CodeGenerator;
 use rive_core::type_system::TypeRegistry;
-use rive_ir::{AstLowering, Optimizer};
+use rive_ir::AstLowering;
 use rive_lexer::tokenize;
 use rive_parser::parse;
 
@@ -14,11 +14,7 @@ fn compile_to_rust(source: &str) -> String {
     // Create type registry and lowering
     let type_registry = TypeRegistry::new();
     let mut lowering = AstLowering::new(type_registry);
-    let mut rir_module = lowering.lower_program(&ast).unwrap();
-
-    // Apply optimizations (Optimizer::new() already has default passes)
-    let optimizer = Optimizer::new();
-    optimizer.optimize(&mut rir_module);
+    let rir_module = lowering.lower_program(&ast).unwrap();
 
     // Generate Rust code
     let mut codegen = CodeGenerator::new();

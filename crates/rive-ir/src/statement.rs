@@ -20,6 +20,14 @@ pub enum RirPattern {
     BoolLiteral { value: bool, span: Span },
     /// Wildcard pattern (_)
     Wildcard { span: Span },
+
+    /// Range pattern (in start..end or in start..=end)
+    RangePattern {
+        start: Box<RirExpression>,
+        end: Box<RirExpression>,
+        inclusive: bool,
+        span: Span,
+    },
 }
 
 impl RirPattern {
@@ -31,7 +39,8 @@ impl RirPattern {
             | Self::FloatLiteral { span, .. }
             | Self::StringLiteral { span, .. }
             | Self::BoolLiteral { span, .. }
-            | Self::Wildcard { span } => *span,
+            | Self::Wildcard { span }
+            | Self::RangePattern { span, .. } => *span,
         }
     }
 }

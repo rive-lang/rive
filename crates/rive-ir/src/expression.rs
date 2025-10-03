@@ -123,6 +123,35 @@ pub enum RirExpression {
         result_type: TypeId,
         span: Span,
     },
+
+    /// While loop expression (can break with value)
+    While {
+        condition: Box<RirExpression>,
+        body: RirBlock,
+        label: Option<String>,
+        result_type: TypeId,
+        span: Span,
+    },
+
+    /// For loop expression (can break with value)
+    For {
+        variable: String,
+        start: Box<RirExpression>,
+        end: Box<RirExpression>,
+        inclusive: bool,
+        body: RirBlock,
+        label: Option<String>,
+        result_type: TypeId,
+        span: Span,
+    },
+
+    /// Infinite loop expression (can break with value)
+    Loop {
+        body: RirBlock,
+        label: Option<String>,
+        result_type: TypeId,
+        span: Span,
+    },
 }
 
 impl RirExpression {
@@ -143,7 +172,10 @@ impl RirExpression {
             | Self::Index { span, .. }
             | Self::If { span, .. }
             | Self::Match { span, .. }
-            | Self::Block { span, .. } => *span,
+            | Self::Block { span, .. }
+            | Self::While { span, .. }
+            | Self::For { span, .. }
+            | Self::Loop { span, .. } => *span,
         }
     }
 
@@ -182,6 +214,18 @@ impl RirExpression {
                 ..
             }
             | Self::Block {
+                result_type: type_id,
+                ..
+            }
+            | Self::While {
+                result_type: type_id,
+                ..
+            }
+            | Self::For {
+                result_type: type_id,
+                ..
+            }
+            | Self::Loop {
                 result_type: type_id,
                 ..
             } => *type_id,

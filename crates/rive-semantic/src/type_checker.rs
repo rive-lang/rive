@@ -464,7 +464,29 @@ impl TypeChecker {
             Expression::Match(match_expr) => self.check_match(match_expr, true),
 
             Expression::Range(range) => self.check_range(range),
+
+            Expression::Block(block) => self.check_block_expression(block),
         }
+    }
+
+    /// Checks a block expression and returns its type.
+    fn check_block_expression(&mut self, block: &Block) -> Result<TypeId> {
+        // Check all statements in the block
+        for statement in &block.statements {
+            self.check_statement(statement)?;
+        }
+
+        // Check if there's a final expression
+        // A block's type is determined by its final expression
+        // For now, we'll look at the last statement if it's an expression statement
+        if let Some(last_stmt) = block.statements.last() {
+            if let Statement::Expression { expression, .. } = last_stmt {
+                return self.check_expression(expression);
+            }
+        }
+
+        // No final expression, block has Unit type
+        Ok(self.symbols.type_registry().get_unit())
     }
 
     /// Checks if two types are compatible.

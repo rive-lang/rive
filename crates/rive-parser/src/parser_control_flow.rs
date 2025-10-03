@@ -205,8 +205,15 @@ impl<'a> Parser<'a> {
             // Expect arrow (->)
             self.expect(&TokenKind::Arrow)?;
 
-            // Parse body expression
-            let body = self.parse_expression()?;
+            // Parse body expression (can be a block or expression)
+            let body = if self.check(&TokenKind::LeftBrace) {
+                // Parse as block expression
+                let block = self.parse_block()?;
+                Expression::Block(Box::new(block))
+            } else {
+                // Parse as regular expression
+                self.parse_expression()?
+            };
             let arm_end = body.span();
 
             arms.push(MatchArm {
@@ -215,15 +222,12 @@ impl<'a> Parser<'a> {
                 span: arm_start.merge(arm_end),
             });
 
-            // Optional comma (allow trailing comma)
+            // Optional comma (allow trailing comma and newline separation)
             if self.check(&TokenKind::Comma) {
                 self.advance();
-            } else if !self.check(&TokenKind::RightBrace) {
-                return Err(Error::Parser(
-                    "Expected ',' or '}' after match arm".to_string(),
-                    self.peek().1,
-                ));
             }
+            // Allow arms to be separated by newlines without commas
+            // Continue if we can parse another pattern, otherwise expect '}'
         }
 
         let end = self.expect(&TokenKind::RightBrace)?;
@@ -273,7 +277,8 @@ impl<'a> Parser<'a> {
                 Ok(Pattern::Float { value, span })
             }
             TokenKind::String => {
-                let value = token.0.text.clone();
+                // Remove surrounding quotes from string literal
+                let value = token.0.text[1..token.0.text.len() - 1].to_string();
                 self.advance();
                 Ok(Pattern::String { value, span })
             }
@@ -282,8 +287,40 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Pattern::Boolean { value, span })
             }
+            TokenKind::In => {
+                // Parse range pattern: in start..end or in start..=end
+                self.advance(); // consume 'in'
+                
+                // Parse start expression (only primary expressions to avoid conflicts)
+                let start = Box::new(self.parse_primary()?);
+                
+                // Parse range operator
+                let inclusive = if self.check(&TokenKind::DotDotEq) {
+                    self.advance();
+                    true
+                } else if self.check(&TokenKind::DotDot) {
+                    self.advance();
+                    false
+                } else {
+                    return Err(Error::Parser(
+                        "Expected '..' or '..=' after range start".to_string(),
+                        self.peek().1,
+                    ));
+                };
+                
+                // Parse end expression (only primary expressions to avoid conflicts)
+                let end = Box::new(self.parse_primary()?);
+                
+                let end_span = end.span();
+                Ok(Pattern::Range {
+                    start,
+                    end,
+                    inclusive,
+                    span: span.merge(end_span),
+                })
+            }
             _ => Err(Error::Parser(
-                "Expected pattern (literal or '_')".to_string(),
+                "Expected pattern (literal, '_', or 'in range')".to_string(),
                 span,
             )),
         }
