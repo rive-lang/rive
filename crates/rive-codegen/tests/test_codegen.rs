@@ -82,7 +82,10 @@ fn test_generate_print_call() {
 
 #[test]
 fn test_generate_function_call() {
-    let source = r#"fun main() { let x = add(1, 2) }"#;
+    let source = r#"
+        fun add(x: Int, y: Int): Int { return x + y }
+        fun main() { let x = add(1, 2) }
+    "#;
     let rust_code = compile_to_rust(source);
 
     assert!(rust_code.contains("add"));

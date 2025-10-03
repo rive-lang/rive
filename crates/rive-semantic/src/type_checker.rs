@@ -1,8 +1,9 @@
 //! Type checking for Rive programs.
 
 use crate::symbol_table::{Symbol, SymbolTable};
-use rive_core::{Error, Result, types::Type};
-use rive_parser::ast::{Block, Expression, Function, Item, Parameter, Program, Statement};
+use rive_core::type_system::TypeId;
+use rive_core::{Error, Result};
+use rive_parser::ast::{Block, Expression, Function, Item, Program, Statement};
 
 /// Type checker for Rive programs.
 ///
@@ -12,7 +13,7 @@ pub struct TypeChecker {
     /// Symbol table for tracking variables and functions
     symbols: SymbolTable,
     /// The expected return type of the current function
-    current_function_return_type: Option<Type>,
+    current_function_return_type: Option<TypeId>,
 }
 
 impl TypeChecker {
@@ -26,40 +27,36 @@ impl TypeChecker {
 
     /// Checks a complete program.
     pub fn check_program(&mut self, program: &Program) -> Result<()> {
-        // First pass: register all function declarations
-        for item in &program.items {
+        // Check that a main function exists
+        let has_main = program.items.iter().any(|item| {
             let Item::Function(func) = item;
-            self.register_function(func)?;
-        }
+            func.name == "main"
+        });
 
-        // Second pass: check function bodies
-        for item in &program.items {
-            let Item::Function(func) = item;
-            self.check_function(func)?;
-        }
-
-        // Ensure main function exists
-        if self.symbols.lookup("main").is_none() {
+        if !has_main {
             return Err(Error::Semantic(
                 "Program must have a 'main' function".to_string(),
             ));
         }
 
-        Ok(())
-    }
+        // First pass: register all function signatures
+        for item in &program.items {
+            let Item::Function(func) = item;
+            let param_types: Vec<TypeId> = func.params.iter().map(|p| p.param_type).collect();
+            let func_type_id = self
+                .symbols
+                .type_registry_mut()
+                .get_or_create_function(param_types, func.return_type);
 
-    /// Registers a function in the symbol table without checking its body.
-    fn register_function(&mut self, func: &Function) -> Result<()> {
-        let param_types: Vec<Type> = func.params.iter().map(|p| p.param_type.clone()).collect();
-        let return_type = func.return_type.clone();
+            let symbol = Symbol::new(func.name.clone(), func_type_id, false);
+            self.symbols.define(symbol)?;
+        }
 
-        let func_type = Type::Function {
-            parameters: param_types,
-            return_type: Box::new(return_type),
-        };
-
-        let symbol = Symbol::new(func.name.clone(), func_type, false);
-        self.symbols.define(symbol).map_err(Error::Semantic)?;
+        // Second pass: type check each function body
+        for item in &program.items {
+            let Item::Function(func) = item;
+            self.check_function(func)?;
+        }
 
         Ok(())
     }
@@ -68,13 +65,12 @@ impl TypeChecker {
     fn check_function(&mut self, func: &Function) -> Result<()> {
         // Enter function scope
         self.symbols.enter_scope();
+        self.current_function_return_type = Some(func.return_type);
 
-        // Set current function return type
-        self.current_function_return_type = Some(func.return_type.clone());
-
-        // Register parameters
+        // Register parameters in the function scope
         for param in &func.params {
-            self.check_parameter(param)?;
+            let symbol = Symbol::new(param.name.clone(), param.param_type, false);
+            self.symbols.define(symbol)?;
         }
 
         // Check function body
@@ -87,24 +83,17 @@ impl TypeChecker {
         Ok(())
     }
 
-    /// Checks a function parameter.
-    fn check_parameter(&mut self, param: &Parameter) -> Result<()> {
-        let symbol = Symbol::new(param.name.clone(), param.param_type.clone(), false);
-        self.symbols.define(symbol).map_err(Error::Semantic)?;
-        Ok(())
-    }
-
     /// Checks a block of statements.
     fn check_block(&mut self, block: &Block) -> Result<()> {
-        for stmt in &block.statements {
-            self.check_statement(stmt)?;
+        for statement in &block.statements {
+            self.check_statement(statement)?;
         }
         Ok(())
     }
 
     /// Checks a statement.
-    fn check_statement(&mut self, stmt: &Statement) -> Result<()> {
-        match stmt {
+    fn check_statement(&mut self, statement: &Statement) -> Result<()> {
+        match statement {
             Statement::Let {
                 name,
                 mutable,
@@ -112,41 +101,40 @@ impl TypeChecker {
                 initializer,
                 span,
             } => {
-                // Check the initializer expression
-                let value_type = self.check_expression(initializer)?;
+                let init_type = self.check_expression(initializer)?;
 
-                // If type annotation exists, verify it matches
-                if let Some(annotated_type) = var_type
-                    && !self.types_compatible(&value_type, annotated_type)
-                {
-                    return Err(Error::SemanticWithSpan(
-                        format!("Type mismatch: expected '{annotated_type}', found '{value_type}'"),
-                        *span,
-                    ));
-                }
-
-                // Define the variable
-                let symbol = Symbol::new(
-                    name.clone(),
-                    var_type.clone().unwrap_or(value_type),
-                    *mutable,
-                );
-                self.symbols
-                    .define(symbol)
-                    .map_err(|e| Error::SemanticWithSpan(e, *span))?;
-
-                Ok(())
-            }
-            Statement::Assignment { name, value, span } => {
-                // Check if variable exists and get its properties
-                let (is_mutable, expected_type) = {
-                    let symbol = self.symbols.lookup(name).ok_or_else(|| {
-                        Error::SemanticWithSpan(format!("Undefined variable '{name}'"), *span)
-                    })?;
-                    (symbol.mutable, symbol.symbol_type.clone())
+                // If type annotation is present, verify it matches the initializer
+                let var_type_id = if let Some(annotated_type) = var_type {
+                    if !self.types_compatible(init_type, *annotated_type) {
+                        let registry = self.symbols.type_registry();
+                        let init_str = registry.get_type_name(init_type);
+                        let annot_str = registry.get_type_name(*annotated_type);
+                        return Err(Error::SemanticWithSpan(
+                            format!(
+                                "Type mismatch: variable '{name}' declared as '{annot_str}' but initialized with '{init_str}'"
+                            ),
+                            *span,
+                        ));
+                    }
+                    *annotated_type
+                } else {
+                    init_type
                 };
 
-                // Check if variable is mutable
+                let symbol = Symbol::new(name.clone(), var_type_id, *mutable);
+                self.symbols.define(symbol)?;
+                Ok(())
+            }
+
+            Statement::Assignment { name, value, span } => {
+                // Clone symbol data to avoid borrow conflicts
+                let (is_mutable, expected_type) = {
+                    let var_symbol = self.symbols.lookup(name).ok_or_else(|| {
+                        Error::SemanticWithSpan(format!("Undefined variable '{name}'"), *span)
+                    })?;
+                    (var_symbol.mutable, var_symbol.symbol_type)
+                };
+
                 if !is_mutable {
                     return Err(Error::SemanticWithSpan(
                         format!("Cannot assign to immutable variable '{name}'"),
@@ -154,14 +142,14 @@ impl TypeChecker {
                     ));
                 }
 
-                // Check the value expression
                 let value_type = self.check_expression(value)?;
-
-                // Verify type compatibility
-                if !self.types_compatible(&value_type, &expected_type) {
+                if !self.types_compatible(value_type, expected_type) {
+                    let registry = self.symbols.type_registry();
+                    let value_str = registry.get_type_name(value_type);
+                    let var_str = registry.get_type_name(expected_type);
                     return Err(Error::SemanticWithSpan(
                         format!(
-                            "Type mismatch in assignment: expected '{expected_type}', found '{value_type}'",
+                            "Type mismatch: cannot assign '{value_str}' to variable of type '{var_str}'"
                         ),
                         *span,
                     ));
@@ -169,139 +157,147 @@ impl TypeChecker {
 
                 Ok(())
             }
-            Statement::Return { value, span } => {
-                let return_type = if let Some(expr) = value {
-                    self.check_expression(expr)?
-                } else {
-                    Type::Unit
-                };
 
-                if let Some(expected_type) = &self.current_function_return_type
-                    && !self.types_compatible(&return_type, expected_type)
-                {
-                    return Err(Error::SemanticWithSpan(
-                        format!(
-                            "Return type mismatch: expected '{expected_type}', found '{return_type}'"
-                        ),
-                        *span,
-                    ));
-                }
-
-                Ok(())
-            }
             Statement::Expression { expression, .. } => {
                 self.check_expression(expression)?;
+                Ok(())
+            }
+
+            Statement::Return { value, span } => {
+                let return_type_id = self.current_function_return_type.ok_or_else(|| {
+                    Error::SemanticWithSpan(
+                        "Return statement outside of function".to_string(),
+                        *span,
+                    )
+                })?;
+
+                let value_type = if let Some(expr) = value {
+                    self.check_expression(expr)?
+                } else {
+                    self.symbols.type_registry().get_unit()
+                };
+
+                if !self.types_compatible(value_type, return_type_id) {
+                    let registry = self.symbols.type_registry();
+                    let value_str = registry.get_type_name(value_type);
+                    let return_str = registry.get_type_name(return_type_id);
+                    return Err(Error::SemanticWithSpan(
+                        format!(
+                            "Type mismatch: function returns '{return_str}' but found '{value_str}'"
+                        ),
+                        *span,
+                    ));
+                }
+
                 Ok(())
             }
         }
     }
 
     /// Checks an expression and returns its type.
-    #[allow(clippy::only_used_in_recursion)]
-    fn check_expression(&mut self, expr: &Expression) -> Result<Type> {
+    fn check_expression(&mut self, expr: &Expression) -> Result<TypeId> {
         match expr {
-            Expression::Integer { .. } => Ok(Type::Int),
-            Expression::Float { .. } => Ok(Type::Float),
-            Expression::String { .. } => Ok(Type::Text),
-            Expression::Boolean { .. } => Ok(Type::Bool),
+            Expression::Integer { .. } => Ok(self.symbols.type_registry().get_int()),
+            Expression::Float { .. } => Ok(self.symbols.type_registry().get_float()),
+            Expression::String { .. } => Ok(self.symbols.type_registry().get_text()),
+            Expression::Boolean { .. } => Ok(self.symbols.type_registry().get_bool()),
             Expression::Null { span } => Err(Error::SemanticWithSpan(
-                "Null literals are not yet supported".to_string(),
+                "Null type not yet supported".to_string(),
                 *span,
             )),
-            Expression::Unary { span, .. } => Err(Error::SemanticWithSpan(
-                "Unary operations are not yet supported".to_string(),
-                *span,
-            )),
-            Expression::Array { elements, span } => {
-                if elements.is_empty() {
-                    return Err(Error::SemanticWithSpan(
-                        "Cannot infer type of empty array".to_string(),
-                        *span,
-                    ));
-                }
 
-                let first_type = self.check_expression(&elements[0])?;
-                for (i, elem) in elements.iter().enumerate().skip(1) {
-                    let elem_type = self.check_expression(elem)?;
-                    if !self.types_compatible(&elem_type, &first_type) {
-                        return Err(Error::SemanticWithSpan(
-                            format!(
-                                "Array element type mismatch at index {i}: expected '{first_type}', found '{elem_type}'"
-                            ),
-                            *span,
-                        ));
-                    }
-                }
-
-                Ok(Type::Array(Box::new(first_type), elements.len()))
-            }
             Expression::Variable { name, span } => {
-                if let Some(symbol) = self.symbols.lookup(name) {
-                    Ok(symbol.symbol_type.clone())
-                } else {
-                    Err(Error::SemanticWithSpan(
-                        format!("Undefined variable '{name}'"),
-                        *span,
-                    ))
-                }
+                let symbol = self.symbols.lookup(name).ok_or_else(|| {
+                    Error::SemanticWithSpan(format!("Undefined variable '{name}'"), *span)
+                })?;
+                Ok(symbol.symbol_type)
             }
+
             Expression::Binary {
                 left,
                 operator,
                 right,
                 span,
             } => {
+                use rive_parser::BinaryOperator;
+
                 let left_type = self.check_expression(left)?;
                 let right_type = self.check_expression(right)?;
 
-                // Check that operands are compatible
-                if !self.types_compatible(&left_type, &right_type) {
+                // Type compatibility check
+                if !self.types_compatible(left_type, right_type) {
+                    let registry = self.symbols.type_registry();
+                    let left_str = registry.get_type_name(left_type);
+                    let right_str = registry.get_type_name(right_type);
                     return Err(Error::SemanticWithSpan(
-                        format!("Binary operation type mismatch: '{left_type}' and '{right_type}'"),
+                        format!(
+                            "Type mismatch in binary operation: '{left_str}' and '{right_str}'"
+                        ),
                         *span,
                     ));
                 }
 
                 // Determine result type based on operator
-                use rive_parser::ast::BinaryOperator;
-                match operator {
+                let result_type = match operator {
                     BinaryOperator::Add
                     | BinaryOperator::Subtract
                     | BinaryOperator::Multiply
                     | BinaryOperator::Divide
-                    | BinaryOperator::Modulo => {
-                        // Arithmetic operators preserve the operand type
-                        if !matches!(left_type, Type::Int | Type::Float) {
-                            return Err(Error::SemanticWithSpan(
-                                format!(
-                                    "Arithmetic operation requires Int or Float, found '{left_type}'"
-                                ),
-                                *span,
-                            ));
-                        }
-                        Ok(left_type)
-                    }
+                    | BinaryOperator::Modulo => left_type,
+
                     BinaryOperator::Equal
                     | BinaryOperator::NotEqual
                     | BinaryOperator::Less
                     | BinaryOperator::LessEqual
                     | BinaryOperator::Greater
-                    | BinaryOperator::GreaterEqual => {
-                        // Comparison operators return Bool
-                        Ok(Type::Bool)
-                    }
-                    BinaryOperator::And | BinaryOperator::Or => {
-                        // Logical operators require Bool operands
-                        if !matches!(left_type, Type::Bool) {
+                    | BinaryOperator::GreaterEqual
+                    | BinaryOperator::And
+                    | BinaryOperator::Or => self.symbols.type_registry().get_bool(),
+                };
+
+                Ok(result_type)
+            }
+
+            Expression::Unary {
+                operator,
+                operand,
+                span,
+            } => {
+                use rive_parser::UnaryOperator;
+
+                let operand_type = self.check_expression(operand)?;
+
+                match operator {
+                    UnaryOperator::Negate => {
+                        let int_type = self.symbols.type_registry().get_int();
+                        let float_type = self.symbols.type_registry().get_float();
+                        if !self.types_compatible(operand_type, int_type)
+                            && !self.types_compatible(operand_type, float_type)
+                        {
+                            let registry = self.symbols.type_registry();
+                            let type_str = registry.get_type_name(operand_type);
                             return Err(Error::SemanticWithSpan(
-                                format!("Logical operation requires Bool, found '{left_type}'"),
+                                format!("Cannot negate type '{type_str}'"),
                                 *span,
                             ));
                         }
-                        Ok(Type::Bool)
+                        Ok(operand_type)
+                    }
+                    UnaryOperator::Not => {
+                        let bool_type = self.symbols.type_registry().get_bool();
+                        if !self.types_compatible(operand_type, bool_type) {
+                            let registry = self.symbols.type_registry();
+                            let type_str = registry.get_type_name(operand_type);
+                            return Err(Error::SemanticWithSpan(
+                                format!("Cannot apply logical NOT to type '{type_str}'"),
+                                *span,
+                            ));
+                        }
+                        Ok(bool_type)
                     }
                 }
             }
+
             Expression::Call {
                 callee,
                 arguments,
@@ -309,6 +305,7 @@ impl TypeChecker {
             } => {
                 let name = callee;
                 let args = arguments;
+
                 // Special handling for built-in print function
                 if name == "print" {
                     if args.is_empty() {
@@ -321,74 +318,172 @@ impl TypeChecker {
                     for arg in args {
                         self.check_expression(arg)?;
                     }
-                    return Ok(Type::Unit);
+                    return Ok(self.symbols.type_registry().get_unit());
                 }
 
                 // Look up function symbol and clone its type to avoid borrow issues
-                let func_type = self
+                let func_type_id = self
                     .symbols
-                    .lookup(name)
+                    .lookup(callee)
                     .ok_or_else(|| {
-                        Error::SemanticWithSpan(format!("Undefined function '{name}'"), *span)
+                        Error::SemanticWithSpan(format!("Undefined function '{callee}'"), *span)
                     })?
-                    .symbol_type
-                    .clone();
+                    .symbol_type;
 
                 // Extract function type
-                if let Type::Function {
-                    parameters,
-                    return_type,
-                } = func_type
+                let (param_types, return_type) = {
+                    let registry = self.symbols.type_registry();
+                    let metadata = registry.get_type_metadata(func_type_id);
+
+                    use rive_core::type_system::TypeKind;
+                    if let TypeKind::Function {
+                        parameters,
+                        return_type,
+                    } = &metadata.kind
+                    {
+                        (parameters.clone(), *return_type)
+                    } else {
+                        return Err(Error::SemanticWithSpan(
+                            format!("'{callee}' is not a function"),
+                            *span,
+                        ));
+                    }
+                };
+
+                // Check argument count
+                if args.len() != param_types.len() {
+                    return Err(Error::SemanticWithSpan(
+                        format!(
+                            "Function '{callee}' expects {} arguments, but {} were provided",
+                            param_types.len(),
+                            args.len()
+                        ),
+                        *span,
+                    ));
+                }
+
+                // Clone arguments to avoid borrow issues during checking
+                let args_clone = arguments.clone();
+
+                // Check argument types
+                for (i, (expected_type, arg)) in
+                    param_types.iter().zip(args_clone.iter()).enumerate()
                 {
-                    // Check argument count
-                    if args.len() != parameters.len() {
+                    let arg_type = self.check_expression(arg)?;
+                    if !self.types_compatible(arg_type, *expected_type) {
+                        let registry = self.symbols.type_registry();
+                        let arg_str = registry.get_type_name(arg_type);
+                        let expected_str = registry.get_type_name(*expected_type);
                         return Err(Error::SemanticWithSpan(
                             format!(
-                                "Function '{}' expects {} arguments, found {}",
-                                name,
-                                parameters.len(),
-                                args.len()
+                                "Argument {} type mismatch: expected '{expected_str}', found '{arg_str}'",
+                                i + 1
                             ),
                             *span,
                         ));
                     }
-
-                    // Check argument types
-                    for (i, (arg, expected_type)) in args.iter().zip(parameters.iter()).enumerate()
-                    {
-                        let arg_type = self.check_expression(arg)?;
-                        if !self.types_compatible(&arg_type, expected_type) {
-                            return Err(Error::SemanticWithSpan(
-                                format!(
-                                    "Argument {} type mismatch: expected '{}', found '{}'",
-                                    i + 1,
-                                    expected_type,
-                                    arg_type
-                                ),
-                                *span,
-                            ));
-                        }
-                    }
-
-                    Ok(*return_type)
-                } else {
-                    Err(Error::SemanticWithSpan(
-                        format!("'{name}' is not a function"),
-                        *span,
-                    ))
                 }
+
+                Ok(return_type)
+            }
+
+            Expression::Array { elements, span } => {
+                if elements.is_empty() {
+                    return Err(Error::SemanticWithSpan(
+                        "Empty arrays are not supported".to_string(),
+                        *span,
+                    ));
+                }
+
+                // Check all elements have the same type
+                let first_type = self.check_expression(&elements[0])?;
+                for (i, elem) in elements.iter().enumerate().skip(1) {
+                    let elem_type = self.check_expression(elem)?;
+                    if !self.types_compatible(elem_type, first_type) {
+                        let registry = self.symbols.type_registry();
+                        let first_str = registry.get_type_name(first_type);
+                        let elem_str = registry.get_type_name(elem_type);
+                        return Err(Error::SemanticWithSpan(
+                            format!(
+                                "Array element type mismatch: expected '{first_str}', found '{elem_str}' at index {i}"
+                            ),
+                            *span,
+                        ));
+                    }
+                }
+
+                // Create array type
+                let array_type = self
+                    .symbols
+                    .type_registry_mut()
+                    .get_or_create_array(first_type, elements.len());
+                Ok(array_type)
             }
         }
     }
 
-    /// Checks if two types are compatible (equal for now, will support subtyping later).
-    fn types_compatible(&self, t1: &Type, t2: &Type) -> bool {
-        t1 == t2
+    /// Checks if two types are compatible.
+    fn types_compatible(&self, a: TypeId, b: TypeId) -> bool {
+        a == b
     }
 }
 
 impl Default for TypeChecker {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rive_lexer::tokenize;
+    use rive_parser::parse_with_types;
+
+    fn check_program_source(source: &str) -> Result<()> {
+        let tokens = tokenize(source).unwrap();
+        let (program, type_registry) = parse_with_types(&tokens).unwrap();
+        let mut type_checker = TypeChecker::new();
+        type_checker.symbols = SymbolTable::with_registry(type_registry);
+        type_checker.check_program(&program)
+    }
+
+    #[test]
+    fn test_simple_function() {
+        let source = "fun main() { let x: Int = 42 }";
+        assert!(check_program_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_type_mismatch() {
+        let source = "fun main() { let x: Int = \"hello\" }";
+        assert!(check_program_source(source).is_err());
+    }
+
+    #[test]
+    fn test_undefined_variable() {
+        let source = "fun main() { let x = y }";
+        assert!(check_program_source(source).is_err());
+    }
+
+    #[test]
+    fn test_function_call() {
+        let source = r#"
+            fun add(x: Int, y: Int): Int { return x + y }
+            fun main() { let result = add(1, 2) }
+        "#;
+        assert!(check_program_source(source).is_ok());
+    }
+
+    #[test]
+    fn test_immutable_assignment() {
+        let source = "fun main() { let x = 42 x = 43 }";
+        assert!(check_program_source(source).is_err());
+    }
+
+    #[test]
+    fn test_mutable_assignment() {
+        let source = "fun main() { let mut x = 42 x = 43 }";
+        assert!(check_program_source(source).is_ok());
     }
 }

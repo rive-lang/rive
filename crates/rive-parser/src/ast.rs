@@ -1,7 +1,7 @@
 //! Abstract Syntax Tree (AST) definitions for Rive.
 
 use rive_core::Span;
-use rive_core::types::Type;
+use rive_core::type_system::TypeId;
 
 /// A complete Rive program (compilation unit).
 #[derive(Debug, Clone, PartialEq)]
@@ -20,7 +20,7 @@ pub enum Item {
 pub struct Function {
     pub name: String,
     pub params: Vec<Parameter>,
-    pub return_type: Type,
+    pub return_type: TypeId,
     pub body: Block,
     pub span: Span,
 }
@@ -29,7 +29,7 @@ pub struct Function {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Parameter {
     pub name: String,
-    pub param_type: Type,
+    pub param_type: TypeId,
     pub span: Span,
 }
 
@@ -47,7 +47,7 @@ pub enum Statement {
     Let {
         name: String,
         mutable: bool,
-        var_type: Option<Type>,
+        var_type: Option<TypeId>,
         initializer: Expression,
         span: Span,
     },

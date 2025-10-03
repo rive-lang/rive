@@ -1,34 +1,101 @@
 //! AST to RIR lowering - converts parsed AST into RIR for optimization.
 
 use rive_core::{
-    Result,
+    Error, Result,
     type_system::{MemoryStrategy, TypeId, TypeRegistry},
 };
 use rive_parser::ast::{
     BinaryOperator, Block as AstBlock, Expression as AstExpression, Function as AstFunction, Item,
-    Parameter as AstParameter, Program, Statement as AstStatement, UnaryOperator,
+    Program, Statement as AstStatement, UnaryOperator,
 };
+use std::collections::HashMap;
 
 use crate::{
     BinaryOp, RirBlock, RirExpression, RirFunction, RirModule, RirParameter, RirStatement, UnaryOp,
 };
 
-/// Converts AST to RIR
+/// Symbol information during lowering
+#[derive(Debug, Clone)]
+struct SymbolInfo {
+    type_id: TypeId,
+    #[allow(dead_code)] // Will be used in future for mutability checks
+    mutable: bool,
+}
+
+/// Converts AST to RIR with type information
 pub struct AstLowering {
     type_registry: TypeRegistry,
+    /// Local symbol table for tracking variables and their types
+    symbols: Vec<HashMap<String, SymbolInfo>>,
+    /// Function signatures for function calls
+    functions: HashMap<String, (Vec<TypeId>, TypeId)>,
 }
 
 impl AstLowering {
     /// Creates a new AST lowering instance
     #[must_use]
     pub fn new(type_registry: TypeRegistry) -> Self {
-        Self { type_registry }
+        Self {
+            type_registry,
+            symbols: vec![HashMap::new()], // Global scope
+            functions: HashMap::new(),
+        }
+    }
+
+    /// Enters a new scope
+    fn enter_scope(&mut self) {
+        self.symbols.push(HashMap::new());
+    }
+
+    /// Exits the current scope
+    fn exit_scope(&mut self) {
+        self.symbols.pop();
+    }
+
+    /// Defines a variable in the current scope
+    fn define_variable(&mut self, name: String, type_id: TypeId, mutable: bool) {
+        if let Some(scope) = self.symbols.last_mut() {
+            scope.insert(name, SymbolInfo { type_id, mutable });
+        }
+    }
+
+    /// Looks up a variable in all scopes
+    fn lookup_variable(&self, name: &str) -> Option<&SymbolInfo> {
+        for scope in self.symbols.iter().rev() {
+            if let Some(info) = scope.get(name) {
+                return Some(info);
+            }
+        }
+        None
+    }
+
+    /// Defines a function signature
+    fn define_function(&mut self, name: String, params: Vec<TypeId>, return_type: TypeId) {
+        self.functions.insert(name, (params, return_type));
+    }
+
+    /// Looks up a function signature
+    fn lookup_function(&self, name: &str) -> Option<&(Vec<TypeId>, TypeId)> {
+        self.functions.get(name)
     }
 
     /// Lowers a complete program to RIR
     pub fn lower_program(&mut self, program: &Program) -> Result<RirModule> {
         let mut module = RirModule::new(self.type_registry.clone());
 
+        // First pass: register all function signatures
+        for item in &program.items {
+            match item {
+                Item::Function(func) => {
+                    let param_types: Vec<TypeId> =
+                        func.params.iter().map(|p| p.param_type).collect();
+                    let return_type = func.return_type;
+                    self.define_function(func.name.clone(), param_types, return_type);
+                }
+            }
+        }
+
+        // Second pass: lower function bodies
         for item in &program.items {
             match item {
                 Item::Function(func) => {
@@ -43,14 +110,32 @@ impl AstLowering {
 
     /// Lowers a function declaration
     fn lower_function(&mut self, func: &AstFunction) -> Result<RirFunction> {
-        let parameters = func
+        // Enter function scope
+        self.enter_scope();
+
+        // Register parameters in symbol table
+        let parameters: Vec<RirParameter> = func
             .params
             .iter()
-            .map(|p| self.lower_parameter(p))
+            .map(|p| {
+                let type_id = p.param_type;
+                self.define_variable(p.name.clone(), type_id, false);
+                let memory_strategy = self.determine_memory_strategy(type_id);
+                Ok(RirParameter::new(
+                    p.name.clone(),
+                    type_id,
+                    false, // Parameters are not mutable by default in Rive
+                    memory_strategy,
+                    p.span,
+                ))
+            })
             .collect::<Result<Vec<_>>>()?;
 
-        let return_type = self.type_to_type_id(&func.return_type);
+        let return_type = func.return_type;
         let body = self.lower_block(&func.body)?;
+
+        // Exit function scope
+        self.exit_scope();
 
         Ok(RirFunction::new(
             func.name.clone(),
@@ -58,19 +143,6 @@ impl AstLowering {
             return_type,
             body,
             func.span,
-        ))
-    }
-
-    /// Lowers a function parameter
-    fn lower_parameter(&self, param: &AstParameter) -> Result<RirParameter> {
-        let type_id = self.type_to_type_id(&param.param_type);
-        let memory_strategy = self.determine_memory_strategy(type_id);
-        Ok(RirParameter::new(
-            param.name.clone(),
-            type_id,
-            false, // Parameters are not mutable by default in Rive
-            memory_strategy,
-            param.span,
         ))
     }
 
@@ -97,11 +169,11 @@ impl AstLowering {
                 span,
             } => {
                 let value = self.lower_expression(initializer)?;
-                let type_id = if let Some(typ) = var_type {
-                    self.type_to_type_id(typ)
-                } else {
-                    value.type_id()
-                };
+                // Type is already a TypeId from the parser
+                let type_id = var_type.unwrap_or_else(|| value.type_id());
+
+                // Register variable in symbol table
+                self.define_variable(name.clone(), type_id, *mutable);
 
                 // Determine memory strategy based on type
                 let memory_strategy = self.determine_memory_strategy(type_id);
@@ -172,10 +244,15 @@ impl AstLowering {
             AstExpression::Null { span } => Ok(RirExpression::Unit { span: *span }),
 
             AstExpression::Variable { name, span } => {
-                // TODO: Look up variable type from symbol table
+                // Look up variable type from symbol table
+                let type_id = self
+                    .lookup_variable(name)
+                    .map(|info| info.type_id)
+                    .ok_or_else(|| Error::Semantic(format!("Undefined variable '{name}'")))?;
+
                 Ok(RirExpression::Variable {
                     name: name.clone(),
-                    type_id: TypeId::INT, // Placeholder
+                    type_id,
                     span: *span,
                 })
             }
@@ -227,11 +304,20 @@ impl AstLowering {
                     .map(|arg| self.lower_expression(arg))
                     .collect::<Result<Vec<_>>>()?;
 
-                // TODO: Look up function return type from symbol table
+                // Look up function return type from function signatures
+                // Special case for built-in print function
+                let return_type = if callee == "print" {
+                    TypeId::UNIT
+                } else {
+                    self.lookup_function(callee)
+                        .map(|(_, return_type)| *return_type)
+                        .ok_or_else(|| Error::Semantic(format!("Undefined function '{callee}'")))?
+                };
+
                 Ok(RirExpression::Call {
                     function: callee.clone(),
                     arguments: args,
-                    return_type: TypeId::UNIT, // Placeholder
+                    return_type,
                     span: *span,
                 })
             }
@@ -284,20 +370,6 @@ impl AstLowering {
         }
     }
 
-    /// Converts AST type to TypeId
-    fn type_to_type_id(&self, typ: &rive_core::types::Type) -> TypeId {
-        match typ {
-            rive_core::types::Type::Int => TypeId::INT,
-            rive_core::types::Type::Float => TypeId::FLOAT,
-            rive_core::types::Type::Bool => TypeId::BOOL,
-            rive_core::types::Type::Text => TypeId::TEXT,
-            rive_core::types::Type::Unit => TypeId::UNIT,
-            rive_core::types::Type::Array(..) => TypeId::INT, // Placeholder
-            rive_core::types::Type::Optional(_) => TypeId::INT, // Placeholder
-            rive_core::types::Type::Function { .. } => TypeId::INT, // Placeholder
-        }
-    }
-
     /// Infers the result type of a binary operation
     fn infer_binary_result_type(
         &self,
@@ -327,7 +399,6 @@ impl AstLowering {
 mod tests {
     use super::*;
     use rive_core::span::{Location, Span};
-    use rive_core::types::Type;
     use rive_parser::ast::*;
 
     fn dummy_span() -> Span {
@@ -337,11 +408,14 @@ mod tests {
     #[test]
     fn test_lower_simple_function() {
         let span = dummy_span();
+        let registry = TypeRegistry::new();
+        let unit_type = registry.get_unit();
+
         let program = Program {
             items: vec![Item::Function(Function {
                 name: "test".to_string(),
                 params: vec![],
-                return_type: Type::Unit,
+                return_type: unit_type,
                 body: Block {
                     statements: vec![Statement::Return { value: None, span }],
                     span,
@@ -350,7 +424,6 @@ mod tests {
             })],
         };
 
-        let registry = TypeRegistry::new();
         let mut lowering = AstLowering::new(registry);
         let result = lowering.lower_program(&program);
 
@@ -363,16 +436,20 @@ mod tests {
     #[test]
     fn test_lower_let_statement() {
         let span = dummy_span();
+        let registry = TypeRegistry::new();
+        let unit_type = registry.get_unit();
+        let int_type = registry.get_int();
+
         let program = Program {
             items: vec![Item::Function(Function {
                 name: "test".to_string(),
                 params: vec![],
-                return_type: Type::Unit,
+                return_type: unit_type,
                 body: Block {
                     statements: vec![Statement::Let {
                         name: "x".to_string(),
                         mutable: false,
-                        var_type: Some(Type::Int),
+                        var_type: Some(int_type),
                         initializer: Expression::Integer { value: 42, span },
                         span,
                     }],
@@ -382,7 +459,6 @@ mod tests {
             })],
         };
 
-        let registry = TypeRegistry::new();
         let mut lowering = AstLowering::new(registry);
         let result = lowering.lower_program(&program);
 
