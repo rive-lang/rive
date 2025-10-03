@@ -6,7 +6,6 @@
 pub mod error;
 pub mod span;
 pub mod type_system;
-pub mod types;
 
 pub use error::{Error, Result};
 pub use span::Span;
