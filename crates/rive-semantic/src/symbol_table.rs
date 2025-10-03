@@ -1,6 +1,6 @@
 //! Symbol table for tracking variables and functions during semantic analysis.
 
-use rive_core::types::Type;
+use rive_core::type_system::{TypeId, TypeRegistry};
 use std::collections::HashMap;
 
 /// Represents a symbol in the symbol table.
@@ -9,7 +9,7 @@ pub struct Symbol {
     /// The name of the symbol
     pub name: String,
     /// The type of the symbol
-    pub symbol_type: Type,
+    pub symbol_type: TypeId,
     /// Whether the symbol is mutable
     pub mutable: bool,
     /// Whether the symbol has been initialized
@@ -18,7 +18,7 @@ pub struct Symbol {
 
 impl Symbol {
     /// Creates a new symbol.
-    pub fn new(name: String, symbol_type: Type, mutable: bool) -> Self {
+    pub fn new(name: String, symbol_type: TypeId, mutable: bool) -> Self {
         Self {
             name,
             symbol_type,
@@ -36,6 +36,8 @@ impl Symbol {
 pub struct SymbolTable {
     /// Stack of scopes, with the current scope at the top
     scopes: Vec<HashMap<String, Symbol>>,
+    /// Type registry for managing types
+    type_registry: TypeRegistry,
 }
 
 impl SymbolTable {
@@ -43,7 +45,26 @@ impl SymbolTable {
     pub fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()],
+            type_registry: TypeRegistry::new(),
         }
+    }
+
+    /// Creates a new symbol table with an existing type registry.
+    pub fn with_registry(type_registry: TypeRegistry) -> Self {
+        Self {
+            scopes: vec![HashMap::new()],
+            type_registry,
+        }
+    }
+
+    /// Gets a reference to the type registry.
+    pub fn type_registry(&self) -> &TypeRegistry {
+        &self.type_registry
+    }
+
+    /// Gets a mutable reference to the type registry.
+    pub fn type_registry_mut(&mut self) -> &mut TypeRegistry {
+        &mut self.type_registry
     }
 
     /// Enters a new scope.
@@ -70,14 +91,14 @@ impl SymbolTable {
     /// # Returns
     /// * `Ok(())` if the symbol was defined successfully
     /// * `Err` if a symbol with the same name already exists in the current scope
-    pub fn define(&mut self, symbol: Symbol) -> Result<(), String> {
+    pub fn define(&mut self, symbol: Symbol) -> rive_core::Result<()> {
         let current_scope = self.scopes.last_mut().unwrap();
 
         if current_scope.contains_key(&symbol.name) {
-            return Err(format!(
+            return Err(rive_core::Error::Semantic(format!(
                 "Symbol '{}' is already defined in this scope",
                 symbol.name
-            ));
+            )));
         }
 
         current_scope.insert(symbol.name.clone(), symbol);
@@ -130,51 +151,56 @@ mod tests {
     #[test]
     fn test_symbol_table_basic() {
         let mut table = SymbolTable::new();
+        let int_type = table.type_registry().get_int();
 
-        let symbol = Symbol::new("x".to_string(), Type::Int, false);
+        let symbol = Symbol::new("x".to_string(), int_type, false);
         assert!(table.define(symbol).is_ok());
 
         let found = table.lookup("x");
         assert!(found.is_some());
         assert_eq!(found.unwrap().name, "x");
-        assert_eq!(found.unwrap().symbol_type, Type::Int);
+        assert_eq!(found.unwrap().symbol_type, int_type);
     }
 
     #[test]
     fn test_symbol_table_scopes() {
         let mut table = SymbolTable::new();
+        let int_type = table.type_registry().get_int();
+        let text_type = table.type_registry().get_text();
 
         // Define in global scope
-        let global_symbol = Symbol::new("x".to_string(), Type::Int, false);
+        let global_symbol = Symbol::new("x".to_string(), int_type, false);
         table.define(global_symbol).unwrap();
 
         // Enter new scope
         table.enter_scope();
 
         // Define in local scope (shadows global)
-        let local_symbol = Symbol::new("x".to_string(), Type::Text, false);
+        let local_symbol = Symbol::new("x".to_string(), text_type, false);
         table.define(local_symbol).unwrap();
 
         // Lookup finds local definition
         let found = table.lookup("x").unwrap();
-        assert_eq!(found.symbol_type, Type::Text);
+        assert_eq!(found.symbol_type, text_type);
 
         // Exit scope
         table.exit_scope();
 
         // Lookup finds global definition again
         let found = table.lookup("x").unwrap();
-        assert_eq!(found.symbol_type, Type::Int);
+        assert_eq!(found.symbol_type, int_type);
     }
 
     #[test]
     fn test_symbol_table_duplicate_error() {
         let mut table = SymbolTable::new();
+        let int_type = table.type_registry().get_int();
+        let text_type = table.type_registry().get_text();
 
-        let symbol1 = Symbol::new("x".to_string(), Type::Int, false);
+        let symbol1 = Symbol::new("x".to_string(), int_type, false);
         table.define(symbol1).unwrap();
 
-        let symbol2 = Symbol::new("x".to_string(), Type::Text, false);
+        let symbol2 = Symbol::new("x".to_string(), text_type, false);
         assert!(table.define(symbol2).is_err());
     }
 

@@ -3,7 +3,7 @@
 use crate::ast::{
     BinaryOperator, Block, Expression, Function, Item, Parameter, Program, Statement, UnaryOperator,
 };
-use rive_core::types::Type;
+use rive_core::type_system::{TypeId, TypeRegistry};
 use rive_core::{Error, Result, Span};
 use rive_lexer::{Token, TokenKind};
 
@@ -11,12 +11,27 @@ use rive_lexer::{Token, TokenKind};
 pub struct Parser<'a> {
     tokens: &'a [(Token, Span)],
     current: usize,
+    type_registry: TypeRegistry,
 }
 
 impl<'a> Parser<'a> {
     /// Creates a new parser for the given token stream.
     pub fn new(tokens: &'a [(Token, Span)]) -> Self {
-        Self { tokens, current: 0 }
+        Self {
+            tokens,
+            current: 0,
+            type_registry: TypeRegistry::new(),
+        }
+    }
+
+    /// Returns a reference to the type registry.
+    pub fn type_registry(&self) -> &TypeRegistry {
+        &self.type_registry
+    }
+
+    /// Consumes the parser and returns the type registry.
+    pub fn into_type_registry(self) -> TypeRegistry {
+        self.type_registry
     }
 
     /// Parses a complete program.
@@ -60,7 +75,7 @@ impl<'a> Parser<'a> {
             self.advance();
             self.parse_type()?
         } else {
-            Type::Unit
+            self.type_registry.get_unit()
         };
 
         let body = self.parse_block()?;
@@ -102,33 +117,33 @@ impl<'a> Parser<'a> {
         Ok(params)
     }
 
-    /// Parses a type annotation.
-    fn parse_type(&mut self) -> Result<Type> {
+    /// Parses a type annotation and returns a TypeId.
+    fn parse_type(&mut self) -> Result<TypeId> {
         let token = self.peek();
 
         match &token.0.kind {
             TokenKind::TypeInt => {
                 self.advance();
-                Ok(Type::Int)
+                Ok(self.type_registry.get_int())
             }
             TokenKind::TypeFloat => {
                 self.advance();
-                Ok(Type::Float)
+                Ok(self.type_registry.get_float())
             }
             TokenKind::TypeText => {
                 self.advance();
-                Ok(Type::Text)
+                Ok(self.type_registry.get_text())
             }
             TokenKind::TypeBool => {
                 self.advance();
-                Ok(Type::Bool)
+                Ok(self.type_registry.get_bool())
             }
             TokenKind::TypeOptional => {
                 self.advance();
                 self.expect(&TokenKind::Less)?;
                 let inner_type = self.parse_type()?;
                 self.expect(&TokenKind::Greater)?;
-                Ok(Type::Optional(Box::new(inner_type)))
+                Ok(self.type_registry.get_or_create_optional(inner_type))
             }
             TokenKind::LeftBracket => {
                 self.advance();
@@ -146,7 +161,7 @@ impl<'a> Parser<'a> {
                     })?;
 
                 self.expect(&TokenKind::RightBracket)?;
-                Ok(Type::Array(Box::new(element_type), size))
+                Ok(self.type_registry.get_or_create_array(element_type, size))
             }
             _ => {
                 let span = self.current_span();
