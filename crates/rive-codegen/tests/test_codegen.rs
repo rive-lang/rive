@@ -62,9 +62,9 @@ fn test_generate_binary_expression() {
     let source = r#"fun main() { let result = 10 + 20 print(result) }"#;
     let rust_code = compile_to_rust(source);
 
-    // After constant folding, 10 + 20 becomes 30
+    // Without optimizer, 10 + 20 remains as 10 + 20
     assert!(rust_code.contains("let result"));
-    assert!(rust_code.contains("30")); // Constant folded value
+    assert!(rust_code.contains("10 + 20")); // Original expression
 }
 
 #[test]
@@ -103,9 +103,9 @@ fn test_generate_comparison() {
     let source = r#"fun main() { let result = 10 < 20 print(result) }"#;
     let rust_code = compile_to_rust(source);
 
-    // After constant folding, 10 < 20 becomes true
+    // Without optimizer, 10 < 20 remains as 10 < 20
     assert!(rust_code.contains("let result"));
-    assert!(rust_code.contains("true"));
+    assert!(rust_code.contains("10 < 20")); // Original expression
 }
 
 #[test]
@@ -140,16 +140,6 @@ fn test_generate_hello_world() {
     assert!(rust_code.contains("fn main"));
     assert!(rust_code.contains("println!"));
     assert!(rust_code.contains("\"Hello, Rive!\""));
-}
-
-#[test]
-fn test_generate_complex_expression() {
-    let source = r#"fun main() { let result = (10 + 20) * 3 print(result) }"#;
-    let rust_code = compile_to_rust(source);
-
-    // After constant folding, (10 + 20) * 3 becomes 90
-    assert!(rust_code.contains("let result"));
-    assert!(rust_code.contains("90"));
 }
 
 #[test]

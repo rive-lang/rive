@@ -89,6 +89,54 @@ impl CodeGenerator {
         }
     }
 
+    /// Generates code for a binary operation operand, adding parentheses if needed based on precedence.
+    fn generate_binary_operand(
+        &mut self,
+        operand: &RirExpression,
+        parent_op: &rive_ir::BinaryOp,
+        is_left: bool,
+    ) -> Result<TokenStream> {
+        // Check if operand is a binary expression that needs parentheses
+        if let RirExpression::Binary { op: child_op, .. } = operand {
+            let parent_prec = self.operator_precedence(parent_op);
+            let child_prec = self.operator_precedence(child_op);
+            
+            // Add parentheses if:
+            // 1. Child has lower precedence than parent
+            // 2. Same precedence but right operand (for left-associative operators)
+            let needs_parens = child_prec < parent_prec 
+                || (child_prec == parent_prec && !is_left && !self.is_right_associative(parent_op));
+            
+            let expr = self.generate_expression(operand)?;
+            if needs_parens {
+                return Ok(quote! { (#expr) });
+            }
+            return Ok(expr);
+        }
+        
+        // Not a binary expression, no parentheses needed
+        self.generate_expression(operand)
+    }
+
+    /// Returns the precedence of an operator (higher number = higher precedence).
+    fn operator_precedence(&self, op: &rive_ir::BinaryOp) -> u8 {
+        use rive_ir::BinaryOp;
+        match op {
+            BinaryOp::Or => 1,
+            BinaryOp::And => 2,
+            BinaryOp::Equal | BinaryOp::NotEqual => 3,
+            BinaryOp::LessThan | BinaryOp::LessEqual | BinaryOp::GreaterThan | BinaryOp::GreaterEqual => 4,
+            BinaryOp::Add | BinaryOp::Subtract => 5,
+            BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Modulo => 6,
+        }
+    }
+
+    /// Returns true if the operator is right-associative.
+    fn is_right_associative(&self, _op: &rive_ir::BinaryOp) -> bool {
+        // All binary operators in Rive are left-associative
+        false
+    }
+
     /// Generates code for a RIR block.
     fn generate_block(&mut self, block: &RirBlock) -> Result<TokenStream> {
         let mut statements = Vec::new();
@@ -273,14 +321,16 @@ impl CodeGenerator {
                 result_type,
                 ..
             } => {
-                let left_expr = self.generate_expression(left)?;
-                let right_expr = self.generate_expression(right)?;
-
                 // Special handling for string concatenation
                 if *op == BinaryOp::Add && *result_type == rive_core::type_system::TypeId::TEXT {
-                    // String concatenation: use format! macro for clean code
+                    let left_expr = self.generate_expression(left)?;
+                    let right_expr = self.generate_expression(right)?;
                     return Ok(quote! { format!("{}{}", #left_expr, #right_expr) });
                 }
+
+                // Generate left and right expressions with appropriate parentheses
+                let left_expr = self.generate_binary_operand(left, op, true)?;
+                let right_expr = self.generate_binary_operand(right, op, false)?;
 
                 let operator = match op {
                     BinaryOp::Add => quote! { + },
@@ -298,8 +348,6 @@ impl CodeGenerator {
                     BinaryOp::Or => quote! { || },
                 };
 
-                // Don't add parentheses for top-level binary expressions
-                // The Rust compiler will handle precedence correctly
                 Ok(quote! { #left_expr #operator #right_expr })
             }
             RirExpression::Unary { op, operand, .. } => {
