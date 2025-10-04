@@ -100,20 +100,20 @@ impl CodeGenerator {
         if let RirExpression::Binary { op: child_op, .. } = operand {
             let parent_prec = self.operator_precedence(parent_op);
             let child_prec = self.operator_precedence(child_op);
-            
+
             // Add parentheses if:
             // 1. Child has lower precedence than parent
             // 2. Same precedence but right operand (for left-associative operators)
-            let needs_parens = child_prec < parent_prec 
+            let needs_parens = child_prec < parent_prec
                 || (child_prec == parent_prec && !is_left && !self.is_right_associative(parent_op));
-            
+
             let expr = self.generate_expression(operand)?;
             if needs_parens {
                 return Ok(quote! { (#expr) });
             }
             return Ok(expr);
         }
-        
+
         // Not a binary expression, no parentheses needed
         self.generate_expression(operand)
     }
@@ -125,7 +125,10 @@ impl CodeGenerator {
             BinaryOp::Or => 1,
             BinaryOp::And => 2,
             BinaryOp::Equal | BinaryOp::NotEqual => 3,
-            BinaryOp::LessThan | BinaryOp::LessEqual | BinaryOp::GreaterThan | BinaryOp::GreaterEqual => 4,
+            BinaryOp::LessThan
+            | BinaryOp::LessEqual
+            | BinaryOp::GreaterThan
+            | BinaryOp::GreaterEqual => 4,
             BinaryOp::Add | BinaryOp::Subtract => 5,
             BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Modulo => 6,
         }
