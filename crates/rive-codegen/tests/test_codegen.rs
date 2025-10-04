@@ -9,7 +9,7 @@ use rive_parser::parse;
 fn compile_to_rust(source: &str) -> String {
     // Full pipeline: Source → Tokens → AST → RIR → Optimized RIR → Rust
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
 
     // Create type registry and lowering
     let type_registry = TypeRegistry::new();

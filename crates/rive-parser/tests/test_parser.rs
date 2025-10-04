@@ -7,7 +7,7 @@ use rive_parser::{BinaryOperator, Expression, Item, Statement, parse};
 fn test_parse_simple_function() {
     let source = r#"fun main() {}"#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     assert_eq!(program.items.len(), 1);
 
@@ -21,7 +21,7 @@ fn test_parse_simple_function() {
 fn test_parse_function_with_parameters() {
     let source = r#"fun add(x: Int, y: Int): Int { return x + y }"#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     assert_eq!(program.items.len(), 1);
 
@@ -36,7 +36,7 @@ fn test_parse_function_with_parameters() {
 fn test_parse_let_statement() {
     let source = r#"fun main() { let x = 42 }"#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
     assert_eq!(func.body.statements.len(), 1);
@@ -53,7 +53,7 @@ fn test_parse_let_statement() {
 fn test_parse_mutable_variable() {
     let source = r#"fun main() { let mut count = 0 }"#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
     if let Statement::Let { name, mutable, .. } = &func.body.statements[0] {
@@ -68,7 +68,7 @@ fn test_parse_mutable_variable() {
 fn test_parse_binary_expression() {
     let source = r#"fun main() { let result = 10 + 20 }"#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
     if let Statement::Let { initializer, .. } = &func.body.statements[0] {
@@ -84,7 +84,7 @@ fn test_parse_binary_expression() {
 fn test_parse_function_call() {
     let source = r#"fun main() { print("Hello") }"#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
     if let Statement::Expression { expression, .. } = &func.body.statements[0] {
@@ -104,7 +104,7 @@ fn test_parse_function_call() {
 fn test_parse_return_statement() {
     let source = r#"fun test(): Int { return 42 }"#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
     if let Statement::Return { value, .. } = &func.body.statements[0] {
@@ -121,7 +121,7 @@ fn test_parse_return_statement() {
 fn test_parse_array_literal() {
     let source = r#"fun main() { let arr = [1, 2, 3] }"#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
     if let Statement::Let { initializer, .. } = &func.body.statements[0] {
@@ -144,7 +144,7 @@ fn test_parse_comparison_operators() {
         let f = 10 != 5
     }"#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
     assert_eq!(func.body.statements.len(), 6);
@@ -156,7 +156,7 @@ fn test_parse_logical_operators() {
         let result = true && false || true
     }"#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
     assert_eq!(func.body.statements.len(), 1);
@@ -169,7 +169,7 @@ fn test_parse_unary_operators() {
         let b = !true
     }"#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
     assert_eq!(func.body.statements.len(), 2);
@@ -181,7 +181,7 @@ fn test_parse_complex_expression() {
         let result = (10 + 20) * 3 - 5 / 2
     }"#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
     assert_eq!(func.body.statements.len(), 1);
@@ -195,7 +195,7 @@ fn test_parse_hello_world() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let program = parse(&tokens).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
 
     assert_eq!(program.items.len(), 1);
 

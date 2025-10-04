@@ -1,8 +1,7 @@
 //! Implementation of the `rive clean` command.
 
+use crate::utils::{find_project, print_project_status, print_status};
 use anyhow::{Context, Result};
-use colored::Colorize;
-use rive_utils::Config;
 use std::fs;
 
 /// Executes the `clean` command to remove build artifacts.
@@ -10,28 +9,20 @@ use std::fs;
 /// # Errors
 /// Returns an error if build artifacts cannot be removed.
 pub fn execute() -> Result<()> {
-    let (config, project_dir) =
-        Config::find().with_context(|| "Failed to find rive.toml. Are you in a Rive project?")?;
+    let (config, project_dir) = find_project()?;
 
-    println!(
-        "     {} {} v{} ({})",
-        "Cleaning".green().bold(),
-        config.package.name,
-        config.package.version,
-        project_dir.display()
-    );
+    print_project_status("Cleaning", &config, &project_dir);
 
     let target_dir = project_dir.join("target");
 
     if target_dir.exists() {
         fs::remove_dir_all(&target_dir)
             .with_context(|| format!("Failed to remove {}", target_dir.display()))?;
-
-        println!("    {} target directory removed", "Finished".green().bold());
+        print_status("Finished", "target directory removed");
     } else {
-        println!(
-            "    {} target directory does not exist, nothing to clean",
-            "Finished".green().bold()
+        print_status(
+            "Finished",
+            "target directory does not exist, nothing to clean",
         );
     }
 

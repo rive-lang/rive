@@ -148,30 +148,6 @@ impl RirBlock {
         }
     }
 
-    /// Creates a block with statements
-    #[must_use]
-    pub fn with_statements(statements: Vec<RirStatement>, span: Span) -> Self {
-        Self {
-            statements,
-            final_expr: None,
-            span,
-        }
-    }
-
-    /// Creates a block with statements and a final expression
-    #[must_use]
-    pub fn with_final_expr(
-        statements: Vec<RirStatement>,
-        final_expr: RirExpression,
-        span: Span,
-    ) -> Self {
-        Self {
-            statements,
-            final_expr: Some(Box::new(final_expr)),
-            span,
-        }
-    }
-
     /// Adds a statement to the block
     pub fn add_statement(&mut self, statement: RirStatement) {
         self.statements.push(statement);

@@ -1,17 +1,13 @@
-// Control flow lowering from AST to RIR.
-//
-// This file is included in lowering.rs and implements lowering for control flow constructs:
-// - If expressions/statements
-// - Loops (while, for, loop)
-// - Break and continue statements
-// - Match expressions
-// - Range expressions
+//! Control flow lowering from AST to RIR.
+
+use crate::lowering::core::AstLowering;
+use crate::{RirBlock, RirExpression, RirPattern, RirStatement};
+use rive_core::{Error, Result, TypeId};
+use rive_parser::Expression;
+use rive_parser::control_flow::{Break, Continue, For, If, Loop, Match, Pattern, While};
 
 impl AstLowering {
     /// Lowers an if expression to RIR.
-    ///
-    /// For expression context (needs value), generates If expression.
-    /// For statement context, generates If statement.
     pub(crate) fn lower_if_expr(&mut self, if_expr: &If) -> Result<RirExpression> {
         let condition = Box::new(self.lower_expression(&if_expr.condition)?);
         let then_block = self.lower_block(&if_expr.then_block)?;
@@ -26,13 +22,12 @@ impl AstLowering {
             ));
         };
 
-        // Get result type from the semantic analysis
-        // For now, we use the type from the then block's last expression
+        // Get result type from the then block's last expression
         let result_type = then_block
             .final_expr
             .as_ref()
             .map(|e| e.type_id())
-            .unwrap_or(self.type_registry.get_unit());
+            .unwrap_or(TypeId::UNIT);
 
         Ok(RirExpression::If {
             condition,
@@ -44,7 +39,6 @@ impl AstLowering {
     }
 
     /// Lowers an if as a statement.
-    #[allow(dead_code)] // Will be used in Phase 6
     pub(crate) fn lower_if_stmt(&mut self, if_expr: &If) -> Result<RirStatement> {
         let condition = Box::new(self.lower_expression(&if_expr.condition)?);
         let then_block = self.lower_block(&if_expr.then_block)?;
@@ -52,7 +46,11 @@ impl AstLowering {
         // Handle else-if chain by converting to nested if-else
         let else_block = if !if_expr.else_if_branches.is_empty() || if_expr.else_block.is_some() {
             // Build nested if-else from else-if chain
-            let mut current_else = if_expr.else_block.as_ref().map(|b| self.lower_block(b)).transpose()?;
+            let mut current_else = if_expr
+                .else_block
+                .as_ref()
+                .map(|b| self.lower_block(b))
+                .transpose()?;
 
             // Process else-if branches in reverse order
             for else_if in if_expr.else_if_branches.iter().rev() {
@@ -89,12 +87,12 @@ impl AstLowering {
     /// Lowers a while loop expression to RIR.
     pub(crate) fn lower_while_expr(&mut self, while_loop: &While) -> Result<RirExpression> {
         let condition = Box::new(self.lower_expression(&while_loop.condition)?);
-        
+
         // Enter loop context for label generation
         let label = self.enter_loop();
-        
+
         let body = self.lower_block(&while_loop.body)?;
-        
+
         // Exit loop context
         self.exit_loop();
 
@@ -130,8 +128,7 @@ impl AstLowering {
         self.enter_scope();
 
         // Define loop variable (Int type for ranges, immutable)
-        let int_type = self.type_registry.get_int();
-        self.define_variable(for_loop.variable.clone(), int_type, false);
+        self.define_variable(for_loop.variable.clone(), TypeId::INT, false);
 
         // Enter loop context for label generation
         let label = self.enter_loop();
@@ -180,56 +177,10 @@ impl AstLowering {
         })
     }
 
-    /// Infers the result type of a loop by finding break statements with values.
-    fn infer_loop_result_type(&self, body: &RirBlock) -> TypeId {
-        // Look for break statements with values in the body
-        for stmt in &body.statements {
-            if let Some(type_id) = self.find_break_value_type(stmt) {
-                return type_id;
-            }
-        }
-        
-        // No break with value found, return Unit
-        self.type_registry.get_unit()
-    }
-
-    /// Find break statement with value and return its type using iterative approach.
-    fn find_break_value_type(&self, stmt: &RirStatement) -> Option<TypeId> {
-        let mut stack = vec![stmt];
-        
-        while let Some(current_stmt) = stack.pop() {
-            match current_stmt {
-                RirStatement::Break { value: Some(expr), .. } => {
-                    // If break has a value, return its type
-                    return Some(expr.type_id());
-                }
-                RirStatement::Break { value: None, .. } => {
-                    // Break without value, continue searching
-                }
-                RirStatement::If { then_block, else_block, .. } => {
-                    // Add both branches to stack
-                    stack.extend(then_block.statements.iter());
-                    if let Some(else_b) = else_block {
-                        stack.extend(else_b.statements.iter());
-                    }
-                }
-                RirStatement::Match { arms, .. } => {
-                    // Add all arms to stack
-                    for (_pattern, body) in arms {
-                        stack.extend(body.statements.iter());
-                    }
-                }
-                _ => {}
-            }
-        }
-        
-        None
-    }
-
     /// Lowers a break statement to RIR.
     pub(crate) fn lower_break(&mut self, break_stmt: &Break) -> Result<RirStatement> {
         let depth = break_stmt.depth.unwrap_or(1) as usize;
-        
+
         // Convert depth to label
         let label = self.get_loop_label(depth)?;
 
@@ -250,7 +201,7 @@ impl AstLowering {
     /// Lowers a continue statement to RIR.
     pub(crate) fn lower_continue(&mut self, continue_stmt: &Continue) -> Result<RirStatement> {
         let depth = continue_stmt.depth.unwrap_or(1) as usize;
-        
+
         // Convert depth to label
         let label = self.get_loop_label(depth)?;
 
@@ -280,7 +231,7 @@ impl AstLowering {
         let result_type = arms
             .first()
             .map(|(_, expr)| expr.type_id())
-            .unwrap_or(self.type_registry.get_unit());
+            .unwrap_or(TypeId::UNIT);
 
         Ok(RirExpression::Match {
             scrutinee,
@@ -291,7 +242,6 @@ impl AstLowering {
     }
 
     /// Lowers a match as a statement.
-    #[allow(dead_code)] // Will be used in Phase 6
     pub(crate) fn lower_match_stmt(&mut self, match_expr: &Match) -> Result<RirStatement> {
         let scrutinee = Box::new(self.lower_expression(&match_expr.scrutinee)?);
 
@@ -300,7 +250,7 @@ impl AstLowering {
             .iter()
             .map(|arm| {
                 let pattern = self.lower_pattern(&arm.pattern)?;
-                
+
                 // Convert expression to block
                 let body_expr = self.lower_expression(&arm.body)?;
                 let body = RirBlock {
@@ -311,7 +261,7 @@ impl AstLowering {
                     final_expr: None,
                     span: arm.span,
                 };
-                
+
                 Ok((pattern, body))
             })
             .collect();
@@ -324,7 +274,7 @@ impl AstLowering {
     }
 
     /// Lowers a pattern to RIR.
-    fn lower_pattern(&mut self, pattern: &Pattern) -> Result<RirPattern> {
+    pub(crate) fn lower_pattern(&mut self, pattern: &Pattern) -> Result<RirPattern> {
         Ok(match pattern {
             Pattern::Integer { value, span } => RirPattern::IntLiteral {
                 value: *value,
@@ -348,7 +298,12 @@ impl AstLowering {
                 ));
             }
             Pattern::Wildcard { span } => RirPattern::Wildcard { span: *span },
-            Pattern::Range { start, end, inclusive, span } => {
+            Pattern::Range {
+                start,
+                end,
+                inclusive,
+                span,
+            } => {
                 let start_expr = self.lower_expression(start)?;
                 let end_expr = self.lower_expression(end)?;
                 RirPattern::RangePattern {
@@ -360,49 +315,4 @@ impl AstLowering {
             }
         })
     }
-
-    /// Lowers a range expression to RIR.
-    ///
-    /// For Phase 1, ranges are only used in for loops, so we don't need
-    /// a dedicated Range RIR node.
-    pub(crate) fn lower_range(&mut self, _range: &Range) -> Result<RirExpression> {
-        // Range should only appear in for loop context
-        // If we reach here, it's an error
-        Err(Error::Semantic(
-            "Range expressions can only be used in for loops".to_string(),
-        ))
-    }
-
-    /// Enters a new loop scope and returns the label for this loop.
-    fn enter_loop(&mut self) -> Option<String> {
-        self.loop_depth += 1;
-        
-        // Generate label without the ' prefix (will be added in codegen)
-        let label = Some(format!("loop_{}", self.loop_depth));
-        
-        self.loop_labels.push(label.clone());
-        label
-    }
-
-    /// Exits the current loop scope.
-    fn exit_loop(&mut self) {
-        self.loop_labels.pop();
-        self.loop_depth = self.loop_depth.saturating_sub(1);
-    }
-
-    /// Gets the loop label at the specified depth (1 = current loop).
-    fn get_loop_label(&self, depth: usize) -> Result<Option<String>> {
-        if depth == 0 || depth > self.loop_labels.len() {
-            return Err(Error::Semantic(format!(
-                "Invalid loop depth: {}",
-                depth
-            )));
-        }
-
-        // depth = 1 means current loop (last in stack)
-        // depth = 2 means parent loop (second from last)
-        let index = self.loop_labels.len() - depth;
-        Ok(self.loop_labels[index].clone())
-    }
 }
-

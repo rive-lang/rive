@@ -147,11 +147,12 @@ impl Default for SymbolTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rive_core::type_system::TypeId;
 
     #[test]
     fn test_symbol_table_basic() {
         let mut table = SymbolTable::new();
-        let int_type = table.type_registry().get_int();
+        let int_type = TypeId::INT;
 
         let symbol = Symbol::new("x".to_string(), int_type, false);
         assert!(table.define(symbol).is_ok());
@@ -165,8 +166,8 @@ mod tests {
     #[test]
     fn test_symbol_table_scopes() {
         let mut table = SymbolTable::new();
-        let int_type = table.type_registry().get_int();
-        let text_type = table.type_registry().get_text();
+        let int_type = TypeId::INT;
+        let text_type = TypeId::TEXT;
 
         // Define in global scope
         let global_symbol = Symbol::new("x".to_string(), int_type, false);
@@ -194,8 +195,8 @@ mod tests {
     #[test]
     fn test_symbol_table_duplicate_error() {
         let mut table = SymbolTable::new();
-        let int_type = table.type_registry().get_int();
-        let text_type = table.type_registry().get_text();
+        let int_type = TypeId::INT;
+        let text_type = TypeId::TEXT;
 
         let symbol1 = Symbol::new("x".to_string(), int_type, false);
         table.define(symbol1).unwrap();
