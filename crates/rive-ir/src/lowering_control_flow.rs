@@ -193,42 +193,37 @@ impl AstLowering {
         self.type_registry.get_unit()
     }
 
-    /// Recursively find break statement with value and return its type.
+    /// Find break statement with value and return its type using iterative approach.
     fn find_break_value_type(&self, stmt: &RirStatement) -> Option<TypeId> {
-        match stmt {
-            RirStatement::Break { value, .. } => {
-                // If break has a value, return its type
-                value.as_ref().map(|v| v.type_id())
-            }
-            RirStatement::If { then_block, else_block, .. } => {
-                // Check both branches
-                for s in &then_block.statements {
-                    if let Some(type_id) = self.find_break_value_type(s) {
-                        return Some(type_id);
+        let mut stack = vec![stmt];
+        
+        while let Some(current_stmt) = stack.pop() {
+            match current_stmt {
+                RirStatement::Break { value: Some(expr), .. } => {
+                    // If break has a value, return its type
+                    return Some(expr.type_id());
+                }
+                RirStatement::Break { value: None, .. } => {
+                    // Break without value, continue searching
+                }
+                RirStatement::If { then_block, else_block, .. } => {
+                    // Add both branches to stack
+                    stack.extend(then_block.statements.iter());
+                    if let Some(else_b) = else_block {
+                        stack.extend(else_b.statements.iter());
                     }
                 }
-                if let Some(else_b) = else_block {
-                    for s in &else_b.statements {
-                        if let Some(type_id) = self.find_break_value_type(s) {
-                            return Some(type_id);
-                        }
+                RirStatement::Match { arms, .. } => {
+                    // Add all arms to stack
+                    for (_pattern, body) in arms {
+                        stack.extend(body.statements.iter());
                     }
                 }
-                None
+                _ => {}
             }
-            RirStatement::Match { arms, .. } => {
-                // Check all arms
-                for (_pattern, body) in arms {
-                    for s in &body.statements {
-                        if let Some(type_id) = self.find_break_value_type(s) {
-                            return Some(type_id);
-                        }
-                    }
-                }
-                None
-            }
-            _ => None,
         }
+        
+        None
     }
 
     /// Lowers a break statement to RIR.

@@ -7,6 +7,17 @@
 // - Match expressions
 // - Block expressions
 
+/// Parameters for generating a for loop expression
+pub struct ForExprParams<'a> {
+    variable: &'a str,
+    start: &'a RirExpression,
+    end: &'a RirExpression,
+    inclusive: bool,
+    body: &'a RirBlock,
+    label: &'a Option<String>,
+    result_type: TypeId,
+}
+
 impl CodeGenerator {
     /// Generates code for an if statement.
     #[allow(dead_code)] // Currently RirStatement::If is generated inline
@@ -380,26 +391,24 @@ impl CodeGenerator {
                     }
                 })
             }
+        } else if let Some(value) = default_value {
+            Ok(quote! {
+                loop {
+                    if !(#cond) {
+                        break #value;
+                    }
+                    #body_stmts
+                }
+            })
         } else {
-            if let Some(value) = default_value {
-                Ok(quote! {
-                    loop {
-                        if !(#cond) {
-                            break #value;
-                        }
-                        #body_stmts
+            Ok(quote! {
+                loop {
+                    if !(#cond) {
+                        break;
                     }
-                })
-            } else {
-                Ok(quote! {
-                    loop {
-                        if !(#cond) {
-                            break;
-                        }
-                        #body_stmts
-                    }
-                })
-            }
+                    #body_stmts
+                }
+            })
         }
     }
 
@@ -410,27 +419,21 @@ impl CodeGenerator {
     /// The range iterator is managed manually.
     pub(crate) fn generate_for_expr(
         &mut self,
-        variable: &str,
-        start: &rive_ir::RirExpression,
-        end: &rive_ir::RirExpression,
-        inclusive: bool,
-        body: &rive_ir::RirBlock,
-        label: &Option<String>,
-        result_type: rive_core::type_system::TypeId,
+        params: ForExprParams,
     ) -> rive_core::Result<TokenStream> {
-        let var = format_ident!("{}", variable);
-        let start_expr = self.generate_expression(start)?;
-        let end_expr = self.generate_expression(end)?;
-        let body_stmts = self.generate_block(body)?;
-        let default_value = self.generate_default_value(result_type);
+        let var = format_ident!("{}", params.variable);
+        let start_expr = self.generate_expression(params.start)?;
+        let end_expr = self.generate_expression(params.end)?;
+        let body_stmts = self.generate_block(params.body)?;
+        let default_value = self.generate_default_value(params.result_type);
 
-        let range = if inclusive {
+        let range = if params.inclusive {
             quote! { (#start_expr..=#end_expr).into_iter() }
         } else {
             quote! { (#start_expr..#end_expr).into_iter() }
         };
 
-        if let Some(lbl) = label {
+        if let Some(lbl) = params.label {
             let label_lifetime = syn::Lifetime::new(&format!("'{}", lbl), proc_macro2::Span::call_site());
             if let Some(value) = default_value {
                 Ok(quote! {
@@ -459,34 +462,32 @@ impl CodeGenerator {
                     }
                 })
             }
+        } else if let Some(value) = default_value {
+            Ok(quote! {
+                {
+                    let mut iter = #range;
+                    loop {
+                        let #var = match iter.next() {
+                            Some(val) => val,
+                            None => break #value,
+                        };
+                        #body_stmts
+                    }
+                }
+            })
         } else {
-            if let Some(value) = default_value {
-                Ok(quote! {
-                    {
-                        let mut iter = #range;
-                        loop {
-                            let #var = match iter.next() {
-                                Some(val) => val,
-                                None => break #value,
-                            };
-                            #body_stmts
-                        }
+            Ok(quote! {
+                {
+                    let mut iter = #range;
+                    loop {
+                        let #var = match iter.next() {
+                            Some(val) => val,
+                            None => break,
+                        };
+                        #body_stmts
                     }
-                })
-            } else {
-                Ok(quote! {
-                    {
-                        let mut iter = #range;
-                        loop {
-                            let #var = match iter.next() {
-                                Some(val) => val,
-                                None => break,
-                            };
-                            #body_stmts
-                        }
-                    }
-                })
-            }
+                }
+            })
         }
     }
 

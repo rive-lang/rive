@@ -161,35 +161,33 @@ impl AstLowering {
 
         // Check if the last statement is an expression (for implicit return)
         let statements_count = block.statements.len();
-        
+
         for (i, stmt) in block.statements.iter().enumerate() {
             let is_last = i == statements_count - 1;
-            
+
             // If this is the last statement and it's an expression statement,
             // treat it as the final expression (implicit return)
             // But only for actual value expressions, not:
             // - Function calls (which return Unit)
             // - If/Match expressions (which should be handled as statements unless explicitly used as expressions)
-            if is_last {
-                if let AstStatement::Expression { expression, .. } = stmt {
-                    // Check if this expression produces a value (not Unit)
-                    // Exclude Call, If, and Match as they are typically statements
-                    let should_be_final = !matches!(
-                        expression,
-                        AstExpression::Call { .. } | AstExpression::If(_) | AstExpression::Match(_)
-                    );
-                    
-                    if should_be_final {
-                        let final_expr = self.lower_expression(expression)?;
-                        // Only set as final_expr if it's not Unit type
-                        if final_expr.type_id() != self.type_registry.get_unit() {
-                            rir_block.final_expr = Some(Box::new(final_expr));
-                            continue;
-                        }
+            if is_last && let AstStatement::Expression { expression, .. } = stmt {
+                // Check if this expression produces a value (not Unit)
+                // Exclude Call, If, and Match as they are typically statements
+                let should_be_final = !matches!(
+                    expression,
+                    AstExpression::Call { .. } | AstExpression::If(_) | AstExpression::Match(_)
+                );
+
+                if should_be_final {
+                    let final_expr = self.lower_expression(expression)?;
+                    // Only set as final_expr if it's not Unit type
+                    if final_expr.type_id() != self.type_registry.get_unit() {
+                        rir_block.final_expr = Some(Box::new(final_expr));
+                        continue;
                     }
                 }
             }
-            
+
             let rir_stmt = self.lower_statement(stmt)?;
             rir_block.add_statement(rir_stmt);
         }
@@ -412,7 +410,7 @@ impl AstLowering {
     /// Lowers a block expression to RIR.
     fn lower_block_expr(&mut self, block: &rive_parser::Block) -> Result<RirExpression> {
         let rir_block = self.lower_block(block)?;
-        
+
         // Check if the block has a final expression
         let (result, result_type) = if let Some(ref final_expr) = rir_block.final_expr {
             (rir_block.final_expr.clone(), final_expr.type_id())

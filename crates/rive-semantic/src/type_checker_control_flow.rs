@@ -236,7 +236,8 @@ impl TypeChecker {
 
         if !is_exhaustive {
             return Err(Error::SemanticWithSpan(
-                "Match must be exhaustive (add a wildcard '_' pattern or cover all cases)".to_string(),
+                "Match must be exhaustive (add a wildcard '_' pattern or cover all cases)"
+                    .to_string(),
                 match_expr.span,
             ));
         }
@@ -283,27 +284,31 @@ impl TypeChecker {
                 // Check that start and end expressions are compatible with expected type
                 let start_type = self.check_expression(start)?;
                 let end_type = self.check_expression(end)?;
-                
+
                 if start_type != expected_type {
                     let registry = self.symbols.type_registry();
                     let expected_str = registry.get_type_name(expected_type);
                     let start_str = registry.get_type_name(start_type);
                     return Err(Error::SemanticWithSpan(
-                        format!("Range start type mismatch: expected '{expected_str}', found '{start_str}'"),
+                        format!(
+                            "Range start type mismatch: expected '{expected_str}', found '{start_str}'"
+                        ),
                         start.span(),
                     ));
                 }
-                
+
                 if end_type != expected_type {
                     let registry = self.symbols.type_registry();
                     let expected_str = registry.get_type_name(expected_type);
                     let end_str = registry.get_type_name(end_type);
                     return Err(Error::SemanticWithSpan(
-                        format!("Range end type mismatch: expected '{expected_str}', found '{end_str}'"),
+                        format!(
+                            "Range end type mismatch: expected '{expected_str}', found '{end_str}'"
+                        ),
                         end.span(),
                     ));
                 }
-                
+
                 return Ok(());
             }
         };

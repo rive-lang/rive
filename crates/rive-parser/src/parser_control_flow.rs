@@ -290,10 +290,10 @@ impl<'a> Parser<'a> {
             TokenKind::In => {
                 // Parse range pattern: in start..end or in start..=end
                 self.advance(); // consume 'in'
-                
+
                 // Parse start expression (only primary expressions to avoid conflicts)
                 let start = Box::new(self.parse_primary()?);
-                
+
                 // Parse range operator
                 let inclusive = if self.check(&TokenKind::DotDotEq) {
                     self.advance();
@@ -307,10 +307,10 @@ impl<'a> Parser<'a> {
                         self.peek().1,
                     ));
                 };
-                
+
                 // Parse end expression (only primary expressions to avoid conflicts)
                 let end = Box::new(self.parse_primary()?);
-                
+
                 let end_span = end.span();
                 Ok(Pattern::Range {
                     start,

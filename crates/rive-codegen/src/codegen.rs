@@ -412,9 +412,25 @@ impl CodeGenerator {
                 label,
                 result_type,
                 ..
-            } => self.generate_for_expr(variable, start, end, *inclusive, body, label, *result_type),
+            } => {
+                let params = ForExprParams {
+                    variable,
+                    start,
+                    end,
+                    inclusive: *inclusive,
+                    body,
+                    label,
+                    result_type: *result_type,
+                };
+                self.generate_for_expr(params)
+            }
 
-            RirExpression::Loop { body, label, result_type, .. } => self.generate_loop_expr(body, label, *result_type),
+            RirExpression::Loop {
+                body,
+                label,
+                result_type,
+                ..
+            } => self.generate_loop_expr(body, label, *result_type),
         }
     }
 

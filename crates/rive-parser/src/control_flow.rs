@@ -159,11 +159,11 @@ pub enum Pattern {
     Wildcard { span: Span },
 
     /// Range pattern: `in start..end` or `in start..=end`
-    Range { 
-        start: Box<Expression>, 
-        end: Box<Expression>, 
-        inclusive: bool, 
-        span: Span 
+    Range {
+        start: Box<Expression>,
+        end: Box<Expression>,
+        inclusive: bool,
+        span: Span,
     },
     // Future patterns (not implemented yet):
     // Variable { name: String, span: Span },

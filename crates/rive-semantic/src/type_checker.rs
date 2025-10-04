@@ -479,10 +479,8 @@ impl TypeChecker {
         // Check if there's a final expression
         // A block's type is determined by its final expression
         // For now, we'll look at the last statement if it's an expression statement
-        if let Some(last_stmt) = block.statements.last() {
-            if let Statement::Expression { expression, .. } = last_stmt {
-                return self.check_expression(expression);
-            }
+        if let Some(Statement::Expression { expression, .. }) = block.statements.last() {
+            return self.check_expression(expression);
         }
 
         // No final expression, block has Unit type
