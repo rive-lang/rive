@@ -2,9 +2,9 @@
 //!
 //! This crate generates Rust code from Rive Intermediate Representation (RIR).
 
-mod codegen;
+mod generator;
 
-pub use codegen::CodeGenerator;
+pub use generator::CodeGenerator;
 
 use rive_core::Result;
 use rive_ir::RirModule;

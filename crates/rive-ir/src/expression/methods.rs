@@ -1,102 +1,8 @@
-//! RIR expression types.
+//! Method implementations for RirExpression.
 
 use rive_core::{span::Span, type_system::TypeId};
 
-/// Binary operators
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BinaryOp {
-    // Arithmetic
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Modulo,
-
-    // Comparison
-    Equal,
-    NotEqual,
-    LessThan,
-    LessEqual,
-    GreaterThan,
-    GreaterEqual,
-
-    // Logical
-    And,
-    Or,
-}
-
-/// Unary operators
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnaryOp {
-    Negate,
-    Not,
-}
-
-/// An expression in RIR
-#[derive(Debug, Clone)]
-pub enum RirExpression {
-    /// Integer literal
-    IntLiteral { value: i64, span: Span },
-
-    /// Float literal
-    FloatLiteral { value: f64, span: Span },
-
-    /// String literal
-    StringLiteral { value: String, span: Span },
-
-    /// Boolean literal
-    BoolLiteral { value: bool, span: Span },
-
-    /// Unit literal ()
-    Unit { span: Span },
-
-    /// Variable reference
-    Variable {
-        name: String,
-        type_id: TypeId,
-        span: Span,
-    },
-
-    /// Binary operation
-    Binary {
-        op: BinaryOp,
-        left: Box<RirExpression>,
-        right: Box<RirExpression>,
-        result_type: TypeId,
-        span: Span,
-    },
-
-    /// Unary operation
-    Unary {
-        op: UnaryOp,
-        operand: Box<RirExpression>,
-        result_type: TypeId,
-        span: Span,
-    },
-
-    /// Function call
-    Call {
-        function: String,
-        arguments: Vec<RirExpression>,
-        return_type: TypeId,
-        span: Span,
-    },
-
-    /// Array literal
-    ArrayLiteral {
-        elements: Vec<RirExpression>,
-        element_type: TypeId,
-        span: Span,
-    },
-
-    /// Array indexing
-    Index {
-        array: Box<RirExpression>,
-        index: Box<RirExpression>,
-        element_type: TypeId,
-        span: Span,
-    },
-}
+use super::types::RirExpression;
 
 impl RirExpression {
     /// Returns the span of this expression
@@ -113,7 +19,13 @@ impl RirExpression {
             | Self::Unary { span, .. }
             | Self::Call { span, .. }
             | Self::ArrayLiteral { span, .. }
-            | Self::Index { span, .. } => *span,
+            | Self::Index { span, .. }
+            | Self::If { span, .. }
+            | Self::Match { span, .. }
+            | Self::Block { span, .. }
+            | Self::While { span, .. }
+            | Self::For { span, .. }
+            | Self::Loop { span, .. } => *span,
         }
     }
 
@@ -141,6 +53,30 @@ impl RirExpression {
             }
             | Self::Index {
                 element_type: type_id,
+                ..
+            }
+            | Self::If {
+                result_type: type_id,
+                ..
+            }
+            | Self::Match {
+                result_type: type_id,
+                ..
+            }
+            | Self::Block {
+                result_type: type_id,
+                ..
+            }
+            | Self::While {
+                result_type: type_id,
+                ..
+            }
+            | Self::For {
+                result_type: type_id,
+                ..
+            }
+            | Self::Loop {
+                result_type: type_id,
                 ..
             } => *type_id,
             Self::ArrayLiteral { element_type, .. } => *element_type,
@@ -177,40 +113,10 @@ impl RirExpression {
     }
 }
 
-impl BinaryOp {
-    /// Returns true if this is an arithmetic operator
-    #[must_use]
-    pub const fn is_arithmetic(self) -> bool {
-        matches!(
-            self,
-            Self::Add | Self::Subtract | Self::Multiply | Self::Divide | Self::Modulo
-        )
-    }
-
-    /// Returns true if this is a comparison operator
-    #[must_use]
-    pub const fn is_comparison(self) -> bool {
-        matches!(
-            self,
-            Self::Equal
-                | Self::NotEqual
-                | Self::LessThan
-                | Self::LessEqual
-                | Self::GreaterThan
-                | Self::GreaterEqual
-        )
-    }
-
-    /// Returns true if this is a logical operator
-    #[must_use]
-    pub const fn is_logical(self) -> bool {
-        matches!(self, Self::And | Self::Or)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::BinaryOp;
     use rive_core::span::Location;
 
     fn dummy_span() -> Span {
@@ -257,21 +163,6 @@ mod tests {
         };
         assert_eq!(binary.type_id(), TypeId::INT);
         assert!(binary.is_constant());
-    }
-
-    #[test]
-    fn test_binary_op_categories() {
-        assert!(BinaryOp::Add.is_arithmetic());
-        assert!(!BinaryOp::Add.is_comparison());
-        assert!(!BinaryOp::Add.is_logical());
-
-        assert!(!BinaryOp::Equal.is_arithmetic());
-        assert!(BinaryOp::Equal.is_comparison());
-        assert!(!BinaryOp::Equal.is_logical());
-
-        assert!(!BinaryOp::And.is_arithmetic());
-        assert!(!BinaryOp::And.is_comparison());
-        assert!(BinaryOp::And.is_logical());
     }
 
     #[test]

@@ -46,6 +46,18 @@ pub enum TokenKind {
     #[token("continue")]
     Continue,
 
+    #[token("loop")]
+    Loop,
+
+    #[token("match")]
+    Match,
+
+    #[token("in")]
+    In,
+
+    #[token("with")]
+    With,
+
     #[token("true")]
     True,
 
@@ -57,22 +69,6 @@ pub enum TokenKind {
 
     #[token("print")]
     Print,
-
-    // Types
-    #[token("Int")]
-    TypeInt,
-
-    #[token("Float")]
-    TypeFloat,
-
-    #[token("Text")]
-    TypeText,
-
-    #[token("Bool")]
-    TypeBool,
-
-    #[token("Optional")]
-    TypeOptional,
 
     // Identifiers and literals
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
@@ -133,7 +129,17 @@ pub enum TokenKind {
     #[token("!")]
     Bang,
 
+    // Range operators (order matters: ..= before ..)
+    #[token("..=")]
+    DotDotEq,
+
+    #[token("..")]
+    DotDot,
+
     // Punctuation
+    #[token("_", priority = 10)]
+    Underscore,
+
     #[token("(")]
     LeftParen,
 
@@ -184,16 +190,14 @@ impl fmt::Display for TokenKind {
             Self::Return => write!(f, "return"),
             Self::Break => write!(f, "break"),
             Self::Continue => write!(f, "continue"),
+            Self::Loop => write!(f, "loop"),
+            Self::Match => write!(f, "match"),
+            Self::In => write!(f, "in"),
+            Self::With => write!(f, "with"),
             Self::True => write!(f, "true"),
             Self::False => write!(f, "false"),
             Self::Null => write!(f, "null"),
             Self::Print => write!(f, "print"),
-
-            Self::TypeInt => write!(f, "Int"),
-            Self::TypeFloat => write!(f, "Float"),
-            Self::TypeText => write!(f, "Text"),
-            Self::TypeBool => write!(f, "Bool"),
-            Self::TypeOptional => write!(f, "Optional"),
 
             Self::Identifier => write!(f, "identifier"),
             Self::Integer => write!(f, "integer"),
@@ -216,6 +220,10 @@ impl fmt::Display for TokenKind {
             Self::PipePipe => write!(f, "||"),
             Self::Bang => write!(f, "!"),
 
+            Self::DotDotEq => write!(f, "..="),
+            Self::DotDot => write!(f, ".."),
+
+            Self::Underscore => write!(f, "_"),
             Self::LeftParen => write!(f, "("),
             Self::RightParen => write!(f, ")"),
             Self::LeftBrace => write!(f, "{{"),

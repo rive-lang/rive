@@ -4,11 +4,11 @@
 //! for Rive source code. It operates on the AST produced by the parser and
 //! ensures type safety and proper variable usage.
 
+mod checker;
 mod symbol_table;
-mod type_checker;
 
+pub use checker::TypeChecker;
 pub use symbol_table::{Symbol, SymbolTable};
-pub use type_checker::TypeChecker;
 
 use rive_core::Result;
 use rive_parser::ast::Program;
@@ -36,7 +36,7 @@ use rive_parser::ast::Program;
 ///
 /// let source = "fun main() { let x: Int = 42 }";
 /// let tokens = tokenize(source).unwrap();
-/// let ast = parse(&tokens).unwrap();
+/// let (ast, _type_registry) = parse(&tokens).unwrap();
 /// let result = analyze(&ast);
 /// assert!(result.is_ok());
 /// ```

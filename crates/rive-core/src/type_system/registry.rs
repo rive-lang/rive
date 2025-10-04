@@ -186,57 +186,6 @@ impl TypeRegistry {
         id
     }
 
-    // Convenience methods for accessing built-in types
-
-    /// Returns the TypeId for Int
-    #[inline]
-    pub fn get_int(&self) -> TypeId {
-        TypeId::INT
-    }
-
-    /// Returns the TypeId for Float
-    #[inline]
-    pub fn get_float(&self) -> TypeId {
-        TypeId::FLOAT
-    }
-
-    /// Returns the TypeId for Bool
-    #[inline]
-    pub fn get_bool(&self) -> TypeId {
-        TypeId::BOOL
-    }
-
-    /// Returns the TypeId for Text
-    #[inline]
-    pub fn get_text(&self) -> TypeId {
-        TypeId::TEXT
-    }
-
-    /// Returns the TypeId for Unit
-    #[inline]
-    pub fn get_unit(&self) -> TypeId {
-        TypeId::UNIT
-    }
-
-    /// Gets or creates an array type
-    pub fn get_or_create_array(&mut self, element: TypeId, size: usize) -> TypeId {
-        self.create_array(element, size)
-    }
-
-    /// Gets or creates an optional type
-    pub fn get_or_create_optional(&mut self, inner: TypeId) -> TypeId {
-        self.create_optional(inner)
-    }
-
-    /// Gets or creates a function type
-    pub fn get_or_create_function(
-        &mut self,
-        parameters: Vec<TypeId>,
-        return_type: TypeId,
-    ) -> TypeId {
-        self.create_function(parameters, return_type)
-    }
-
     /// Gets the metadata for a type
     #[inline]
     pub fn get_type_metadata(&self, id: TypeId) -> &TypeMetadata {

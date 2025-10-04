@@ -2,23 +2,19 @@
 
 use rive_codegen::CodeGenerator;
 use rive_core::type_system::TypeRegistry;
-use rive_ir::{AstLowering, Optimizer};
+use rive_ir::AstLowering;
 use rive_lexer::tokenize;
 use rive_parser::parse;
 
 fn compile_to_rust(source: &str) -> String {
     // Full pipeline: Source → Tokens → AST → RIR → Optimized RIR → Rust
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
 
     // Create type registry and lowering
     let type_registry = TypeRegistry::new();
     let mut lowering = AstLowering::new(type_registry);
-    let mut rir_module = lowering.lower_program(&ast).unwrap();
-
-    // Apply optimizations (Optimizer::new() already has default passes)
-    let optimizer = Optimizer::new();
-    optimizer.optimize(&mut rir_module);
+    let rir_module = lowering.lower_program(&ast).unwrap();
 
     // Generate Rust code
     let mut codegen = CodeGenerator::new();
@@ -66,9 +62,9 @@ fn test_generate_binary_expression() {
     let source = r#"fun main() { let result = 10 + 20 print(result) }"#;
     let rust_code = compile_to_rust(source);
 
-    // After constant folding, 10 + 20 becomes 30
+    // Without optimizer, 10 + 20 remains as 10 + 20
     assert!(rust_code.contains("let result"));
-    assert!(rust_code.contains("30")); // Constant folded value
+    assert!(rust_code.contains("10 + 20")); // Original expression
 }
 
 #[test]
@@ -107,9 +103,9 @@ fn test_generate_comparison() {
     let source = r#"fun main() { let result = 10 < 20 print(result) }"#;
     let rust_code = compile_to_rust(source);
 
-    // After constant folding, 10 < 20 becomes true
+    // Without optimizer, 10 < 20 remains as 10 < 20
     assert!(rust_code.contains("let result"));
-    assert!(rust_code.contains("true"));
+    assert!(rust_code.contains("10 < 20")); // Original expression
 }
 
 #[test]
@@ -144,16 +140,6 @@ fn test_generate_hello_world() {
     assert!(rust_code.contains("fn main"));
     assert!(rust_code.contains("println!"));
     assert!(rust_code.contains("\"Hello, Rive!\""));
-}
-
-#[test]
-fn test_generate_complex_expression() {
-    let source = r#"fun main() { let result = (10 + 20) * 3 print(result) }"#;
-    let rust_code = compile_to_rust(source);
-
-    // After constant folding, (10 + 20) * 3 becomes 90
-    assert!(rust_code.contains("let result"));
-    assert!(rust_code.contains("90"));
 }
 
 #[test]

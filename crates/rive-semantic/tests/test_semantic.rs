@@ -12,7 +12,7 @@ fn test_simple_variable_declaration() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_ok());
 }
@@ -25,7 +25,7 @@ fn test_type_inference() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_ok());
 }
@@ -38,7 +38,7 @@ fn test_type_mismatch() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_err());
 }
@@ -51,7 +51,7 @@ fn test_undefined_variable() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_err());
 }
@@ -68,7 +68,7 @@ fn test_function_call() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_ok());
 }
@@ -85,7 +85,7 @@ fn test_function_wrong_argument_count() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_err());
 }
@@ -102,7 +102,7 @@ fn test_function_wrong_argument_type() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_err());
 }
@@ -118,7 +118,7 @@ fn test_return_type_mismatch() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_err());
 }
@@ -132,7 +132,7 @@ fn test_print_function() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_ok());
 }
@@ -145,7 +145,7 @@ fn test_array_literal() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_ok());
 }
@@ -158,7 +158,7 @@ fn test_array_type_mismatch() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_err());
 }
@@ -174,7 +174,7 @@ fn test_binary_operations() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_ok());
 }
@@ -190,7 +190,7 @@ fn test_comparison_operations() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_ok());
 }
@@ -203,7 +203,7 @@ fn test_no_main_function() {
         }
     "#;
     let tokens = tokenize(source).unwrap();
-    let ast = parse(&tokens).unwrap();
+    let (ast, _type_registry) = parse(&tokens).unwrap();
     let result = analyze(&ast);
     assert!(result.is_err());
 }

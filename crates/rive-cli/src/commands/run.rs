@@ -1,8 +1,8 @@
 //! Implementation of the `rive run` command.
 
 use crate::compiler::Compiler;
+use crate::utils::{find_project, print_status};
 use anyhow::{Context, Result};
-use rive_utils::Config;
 use std::process::Command;
 
 /// Executes the `run` command to build and run the Rive project.
@@ -10,19 +10,11 @@ use std::process::Command;
 /// # Errors
 /// Returns an error if the project cannot be built or run.
 pub fn execute() -> Result<()> {
-    use colored::Colorize;
-
-    let (_config, project_root) =
-        Config::find().with_context(|| "Not in a Rive project directory")?;
-
+    let (_config, project_root) = find_project()?;
     let compiler = Compiler::new(project_root)?;
     let (binary_path, _duration) = compiler.build(false)?;
 
-    println!(
-        "     {} {}",
-        "Running".green().bold(),
-        binary_path.display()
-    );
+    print_status("Running", &binary_path.display().to_string());
     println!();
 
     let status = Command::new(&binary_path)

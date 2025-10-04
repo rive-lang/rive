@@ -80,11 +80,8 @@ fn test_simple_function() {
             .iter()
             .any(|t| matches!(t.0.kind, TokenKind::Identifier))
     );
-    assert!(
-        tokens
-            .iter()
-            .any(|t| matches!(t.0.kind, TokenKind::TypeText))
-    );
+    // Type names are now parsed as identifiers
+    assert!(tokens.iter().any(|t| t.0.text == "Text"));
     assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::Print)));
 }
 
@@ -124,16 +121,9 @@ fn test_optional_type() {
             .iter()
             .any(|t| matches!(t.0.kind, TokenKind::Question))
     );
-    assert!(
-        tokens
-            .iter()
-            .any(|t| matches!(t.0.kind, TokenKind::TypeOptional))
-    );
-    assert!(
-        tokens
-            .iter()
-            .any(|t| matches!(t.0.kind, TokenKind::TypeInt))
-    );
+    // Type names are now parsed as identifiers
+    assert!(tokens.iter().any(|t| t.0.text == "Optional"));
+    assert!(tokens.iter().any(|t| t.0.text == "Int"));
     assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::Null)));
 }
 
@@ -162,7 +152,9 @@ fn test_array_syntax() {
 
     assert_eq!(tokens.len(), 5);
     assert!(matches!(tokens[0].0.kind, TokenKind::LeftBracket));
-    assert!(matches!(tokens[1].0.kind, TokenKind::TypeInt));
+    // Type names are now parsed as identifiers
+    assert!(matches!(tokens[1].0.kind, TokenKind::Identifier));
+    assert_eq!(tokens[1].0.text, "Int");
     assert!(matches!(tokens[2].0.kind, TokenKind::Semicolon));
     assert!(matches!(tokens[3].0.kind, TokenKind::Integer));
     assert!(matches!(tokens[4].0.kind, TokenKind::RightBracket));
@@ -178,4 +170,110 @@ fn test_negative_numbers() {
     assert_eq!(tokens[0].0.text, "-42");
     assert!(matches!(tokens[1].0.kind, TokenKind::Float));
     assert_eq!(tokens[1].0.text, "-3.14");
+}
+
+#[test]
+fn test_control_flow_keywords() {
+    let source = "loop match in";
+    let tokens = tokenize(source).unwrap();
+
+    assert_eq!(tokens.len(), 3);
+    assert!(matches!(tokens[0].0.kind, TokenKind::Loop));
+    assert_eq!(tokens[0].0.text, "loop");
+    assert!(matches!(tokens[1].0.kind, TokenKind::Match));
+    assert_eq!(tokens[1].0.text, "match");
+    assert!(matches!(tokens[2].0.kind, TokenKind::In));
+    assert_eq!(tokens[2].0.text, "in");
+}
+
+#[test]
+fn test_range_operators() {
+    let source = "1..10 1..=10";
+    let tokens = tokenize(source).unwrap();
+
+    assert_eq!(tokens.len(), 6);
+    assert!(matches!(tokens[0].0.kind, TokenKind::Integer));
+    assert!(matches!(tokens[1].0.kind, TokenKind::DotDot));
+    assert_eq!(tokens[1].0.text, "..");
+    assert!(matches!(tokens[2].0.kind, TokenKind::Integer));
+    assert!(matches!(tokens[3].0.kind, TokenKind::Integer));
+    assert!(matches!(tokens[4].0.kind, TokenKind::DotDotEq));
+    assert_eq!(tokens[4].0.text, "..=");
+    assert!(matches!(tokens[5].0.kind, TokenKind::Integer));
+}
+
+#[test]
+fn test_match_arrow() {
+    let source = "x -> y";
+    let tokens = tokenize(source).unwrap();
+
+    assert_eq!(tokens.len(), 3);
+    assert!(matches!(tokens[0].0.kind, TokenKind::Identifier));
+    assert!(matches!(tokens[1].0.kind, TokenKind::Arrow));
+    assert_eq!(tokens[1].0.text, "->");
+    assert!(matches!(tokens[2].0.kind, TokenKind::Identifier));
+}
+
+#[test]
+fn test_underscore_wildcard() {
+    let source = "_ _x x_y";
+    let tokens = tokenize(source).unwrap();
+
+    assert_eq!(tokens.len(), 3);
+    // Standalone underscore should be Underscore token
+    assert!(matches!(tokens[0].0.kind, TokenKind::Underscore));
+    assert_eq!(tokens[0].0.text, "_");
+    // _x and x_y should be identifiers
+    assert!(matches!(tokens[1].0.kind, TokenKind::Identifier));
+    assert_eq!(tokens[1].0.text, "_x");
+    assert!(matches!(tokens[2].0.kind, TokenKind::Identifier));
+    assert_eq!(tokens[2].0.text, "x_y");
+}
+
+#[test]
+fn test_loop_expression() {
+    let source = r#"
+        loop {
+            if x > 10 {
+                break
+            }
+        }
+    "#;
+
+    let tokens = tokenize(source).unwrap();
+
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::Loop)));
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::If)));
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::Break)));
+}
+
+#[test]
+fn test_for_loop() {
+    let source = "for i in 1..10 { }";
+    let tokens = tokenize(source).unwrap();
+
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::For)));
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::In)));
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::DotDot)));
+}
+
+#[test]
+fn test_match_expression() {
+    let source = r#"
+        match x {
+            1 -> "one"
+            2 -> "two"
+            _ -> "other"
+        }
+    "#;
+
+    let tokens = tokenize(source).unwrap();
+
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::Match)));
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::Arrow)));
+    assert!(
+        tokens
+            .iter()
+            .any(|t| matches!(t.0.kind, TokenKind::Underscore))
+    );
 }

@@ -1,49 +1,37 @@
-//! Rive Intermediate Representation (RIR)
+//! Rive Intermediate Representation (RIR).
 //!
-//! RIR is a Rust-oriented intermediate representation designed specifically for
-//! generating high-quality Rust code. Unlike traditional IRs (LLVM, GCC RTL),
-//! RIR preserves high-level structure while making compiler decisions explicit.
-//!
-//! # Design Philosophy
-//!
-//! - **Rust-First**: Designed for Rust generation, not machine code
-//! - **Structured**: Preserves if/while/match, no goto or basic blocks
-//! - **Explicit**: All compiler decisions are visible (memory ops, types)
-//! - **Optimizable**: Easy to analyze and transform
-//! - **Debuggable**: Human-readable for compiler development
-//!
-//! # Example
-//!
-//! ```rust
-//! use rive_ir::{RirModule, RirFunction, RirBlock, ExprBuilder};
-//! use rive_core::{type_system::TypeRegistry, span::{Span, Location}};
-//!
-//! let registry = TypeRegistry::new();
-//! let module = RirModule::new(registry);
-//! let span = Span::new(Location::new(1, 1), Location::new(1, 10));
-//!
-//! // Create a simple function
-//! let func = RirFunction::new(
-//!     "main".to_string(),
-//!     vec![],
-//!     rive_core::type_system::TypeId::UNIT,
-//!     RirBlock::new(span),
-//!     span,
-//! );
-//! ```
+//! This crate defines the intermediate representation used between AST and code generation.
+//! RIR is a lower-level representation that is easier to optimize and generate code from.
 
 mod builder;
 mod display;
 mod expression;
 mod lowering;
 mod module;
-mod optimizer;
 mod statement;
 
-// Re-export main types
 pub use builder::{BlockBuilder, ExprBuilder, RirBuilder};
 pub use expression::{BinaryOp, RirExpression, UnaryOp};
 pub use lowering::AstLowering;
 pub use module::{RirBlock, RirFunction, RirModule, RirParameter};
-pub use optimizer::{ConstantFoldingPass, DeadCodeEliminationPass, OptimizationPass, Optimizer};
-pub use statement::RirStatement;
+pub use statement::{RirPattern, RirStatement};
+
+use rive_core::Result;
+use rive_core::type_system::TypeRegistry;
+use rive_parser::ast::Program;
+
+/// Lowers AST to RIR.
+///
+/// # Arguments
+/// * `program` - The parsed AST program
+/// * `type_registry` - Type registry from semantic analysis
+///
+/// # Returns
+/// A RIR module ready for code generation
+///
+/// # Errors
+/// Returns an error if lowering fails
+pub fn lower(program: &Program, type_registry: TypeRegistry) -> Result<RirModule> {
+    let mut lowering = AstLowering::new(type_registry);
+    lowering.lower_program(program)
+}

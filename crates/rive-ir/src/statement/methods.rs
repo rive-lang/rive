@@ -1,98 +1,22 @@
-//! RIR statement types.
+//! Method implementations for RirStatement and RirPattern.
 
-use rive_core::{
-    span::Span,
-    type_system::{MemoryStrategy, TypeId},
-};
+use rive_core::span::Span;
 
-use crate::{RirBlock, RirExpression};
+use super::types::{RirPattern, RirStatement};
 
-/// A statement in RIR
-#[derive(Debug, Clone)]
-pub enum RirStatement {
-    /// Variable declaration with initialization
-    Let {
-        /// Variable name
-        name: String,
-        /// Variable type
-        type_id: TypeId,
-        /// Whether the variable is mutable
-        is_mutable: bool,
-        /// Initial value
-        value: Box<RirExpression>,
-        /// Memory strategy for this variable
-        memory_strategy: MemoryStrategy,
-        /// Source location
-        span: Span,
-    },
-
-    /// Assignment to an existing variable
-    Assign {
-        /// Variable name
-        name: String,
-        /// New value
-        value: Box<RirExpression>,
-        /// Source location
-        span: Span,
-    },
-
-    /// Array element assignment
-    AssignIndex {
-        /// Array variable name
-        array: String,
-        /// Index expression
-        index: Box<RirExpression>,
-        /// New value
-        value: Box<RirExpression>,
-        /// Source location
-        span: Span,
-    },
-
-    /// Return statement
-    Return {
-        /// Optional return value
-        value: Option<Box<RirExpression>>,
-        /// Source location
-        span: Span,
-    },
-
-    /// If statement (conditional)
-    If {
-        /// Condition expression
-        condition: Box<RirExpression>,
-        /// Then block
-        then_block: RirBlock,
-        /// Optional else block
-        else_block: Option<RirBlock>,
-        /// Source location
-        span: Span,
-    },
-
-    /// While loop
-    While {
-        /// Loop condition
-        condition: Box<RirExpression>,
-        /// Loop body
-        body: RirBlock,
-        /// Source location
-        span: Span,
-    },
-
-    /// Standalone expression statement
-    Expression {
-        /// Expression to evaluate
-        expr: Box<RirExpression>,
-        /// Source location
-        span: Span,
-    },
-
-    /// Block statement
-    Block {
-        /// Inner block
-        block: RirBlock,
-        /// Source location
-        span: Span,
-    },
+impl RirPattern {
+    /// Returns the span of this pattern
+    #[must_use]
+    pub const fn span(&self) -> Span {
+        match self {
+            Self::IntLiteral { span, .. }
+            | Self::FloatLiteral { span, .. }
+            | Self::StringLiteral { span, .. }
+            | Self::BoolLiteral { span, .. }
+            | Self::Wildcard { span }
+            | Self::RangePattern { span, .. } => *span,
+        }
+    }
 }
 
 impl RirStatement {
@@ -106,6 +30,11 @@ impl RirStatement {
             | Self::Return { span, .. }
             | Self::If { span, .. }
             | Self::While { span, .. }
+            | Self::For { span, .. }
+            | Self::Loop { span, .. }
+            | Self::Break { span, .. }
+            | Self::Continue { span, .. }
+            | Self::Match { span, .. }
             | Self::Expression { span, .. }
             | Self::Block { span, .. } => *span,
         }
@@ -117,17 +46,39 @@ impl RirStatement {
         matches!(self, Self::Return { .. })
     }
 
-    /// Returns true if this is a control flow statement (if, while)
+    /// Returns true if this is a control flow statement
     #[must_use]
     pub const fn is_control_flow(&self) -> bool {
-        matches!(self, Self::If { .. } | Self::While { .. })
+        matches!(
+            self,
+            Self::If { .. }
+                | Self::While { .. }
+                | Self::For { .. }
+                | Self::Loop { .. }
+                | Self::Break { .. }
+                | Self::Continue { .. }
+                | Self::Match { .. }
+        )
+    }
+
+    /// Returns true if this is a loop statement
+    #[must_use]
+    pub const fn is_loop(&self) -> bool {
+        matches!(
+            self,
+            Self::While { .. } | Self::For { .. } | Self::Loop { .. }
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rive_core::span::Location;
+    use crate::RirExpression;
+    use rive_core::{
+        span::Location,
+        type_system::{MemoryStrategy, TypeId},
+    };
 
     fn dummy_span() -> Span {
         Span::new(Location::new(1, 1), Location::new(1, 10))
@@ -160,6 +111,7 @@ mod tests {
 
     #[test]
     fn test_control_flow_detection() {
+        use crate::RirBlock;
         let span = dummy_span();
         let if_stmt = RirStatement::If {
             condition: Box::new(RirExpression::BoolLiteral { value: true, span }),
