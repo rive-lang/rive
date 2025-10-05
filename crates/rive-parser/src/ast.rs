@@ -144,6 +144,24 @@ pub enum Expression {
 
     /// Block expression: `{ statements... }`
     Block(Box<Block>),
+
+    /// Elvis operator (null-coalescing): `value ?: fallback`
+    ///
+    /// Returns `value` if non-null, otherwise evaluates and returns `fallback`.
+    Elvis {
+        value: Box<Expression>,
+        fallback: Box<Expression>,
+        span: Span,
+    },
+
+    /// Safe call operator: `object?.method()` or `object?.field`
+    ///
+    /// Evaluates to null if `object` is null, otherwise calls the method/accesses field.
+    SafeCall {
+        object: Box<Expression>,
+        call: Box<Expression>,
+        span: Span,
+    },
 }
 
 impl Expression {
@@ -168,6 +186,8 @@ impl Expression {
             Self::Match(expr) => expr.span,
             Self::Range(expr) => expr.span,
             Self::Block(block) => block.span,
+            Self::Elvis { span, .. } => *span,
+            Self::SafeCall { span, .. } => *span,
         }
     }
 }

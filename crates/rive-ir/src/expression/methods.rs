@@ -25,7 +25,11 @@ impl RirExpression {
             | Self::Block { span, .. }
             | Self::While { span, .. }
             | Self::For { span, .. }
-            | Self::Loop { span, .. } => *span,
+            | Self::Loop { span, .. }
+            | Self::NullLiteral { span, .. }
+            | Self::Elvis { span, .. }
+            | Self::SafeCall { span, .. }
+            | Self::WrapOptional { span, .. } => *span,
         }
     }
 
@@ -78,6 +82,19 @@ impl RirExpression {
             | Self::Loop {
                 result_type: type_id,
                 ..
+            }
+            | Self::NullLiteral { type_id, .. }
+            | Self::Elvis {
+                result_type: type_id,
+                ..
+            }
+            | Self::SafeCall {
+                result_type: type_id,
+                ..
+            }
+            | Self::WrapOptional {
+                result_type: type_id,
+                ..
             } => *type_id,
             Self::ArrayLiteral { element_type, .. } => *element_type,
         }
@@ -93,6 +110,7 @@ impl RirExpression {
                 | Self::StringLiteral { .. }
                 | Self::BoolLiteral { .. }
                 | Self::Unit { .. }
+                | Self::NullLiteral { .. }
         )
     }
 
@@ -104,10 +122,15 @@ impl RirExpression {
             | Self::FloatLiteral { .. }
             | Self::StringLiteral { .. }
             | Self::BoolLiteral { .. }
-            | Self::Unit { .. } => true,
+            | Self::Unit { .. }
+            | Self::NullLiteral { .. } => true,
             Self::Binary { left, right, .. } => left.is_constant() && right.is_constant(),
             Self::Unary { operand, .. } => operand.is_constant(),
             Self::ArrayLiteral { elements, .. } => elements.iter().all(Self::is_constant),
+            Self::Elvis {
+                value, fallback, ..
+            } => value.is_constant() && fallback.is_constant(),
+            Self::WrapOptional { value, .. } => value.is_constant(),
             _ => false,
         }
     }

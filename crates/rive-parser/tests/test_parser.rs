@@ -203,3 +203,235 @@ fn test_parse_hello_world() {
     assert_eq!(func.name, "main");
     assert_eq!(func.body.statements.len(), 1);
 }
+
+#[test]
+fn test_parse_nullable_type() {
+    let source = r#"fun test(x: Int?): Text? { return null }"#;
+    let tokens = tokenize(source).unwrap();
+    let (program, type_registry) = parse(&tokens).unwrap();
+
+    assert_eq!(program.items.len(), 1);
+
+    let Item::Function(func) = &program.items[0];
+    assert_eq!(func.name, "test");
+    assert_eq!(func.params.len(), 1);
+
+    // Parameter should have nullable type
+    let param_type = func.params[0].param_type;
+    let param_meta = type_registry.get(param_type).unwrap();
+    assert!(matches!(
+        param_meta.kind,
+        rive_core::type_system::TypeKind::Optional { .. }
+    ));
+
+    // Return type should be nullable
+    let return_type = func.return_type;
+    let return_meta = type_registry.get(return_type).unwrap();
+    assert!(matches!(
+        return_meta.kind,
+        rive_core::type_system::TypeKind::Optional { .. }
+    ));
+}
+
+#[test]
+fn test_parse_multiple_nullable_types() {
+    let source = r#"
+        fun test(a: Int?, b: Float?, c: Text?, d: Bool?) {
+            let x: Int? = null
+            let y: Text? = null
+        }
+    "#;
+    let tokens = tokenize(source).unwrap();
+    let (program, type_registry) = parse(&tokens).unwrap();
+
+    let Item::Function(func) = &program.items[0];
+    assert_eq!(func.params.len(), 4);
+
+    // All parameters should be nullable
+    for param in &func.params {
+        let param_meta = type_registry.get(param.param_type).unwrap();
+        assert!(matches!(
+            param_meta.kind,
+            rive_core::type_system::TypeKind::Optional { .. }
+        ));
+    }
+
+    // Variables should be nullable
+    assert_eq!(func.body.statements.len(), 2);
+}
+
+#[test]
+fn test_parse_array_of_nullable_types() {
+    let source = r#"fun test(arr: [Int?; 5]) {}"#;
+    let tokens = tokenize(source).unwrap();
+    let (program, type_registry) = parse(&tokens).unwrap();
+
+    let Item::Function(func) = &program.items[0];
+    let param_type = func.params[0].param_type;
+    let param_meta = type_registry.get(param_type).unwrap();
+
+    // Should be an array type
+    if let rive_core::type_system::TypeKind::Array { element, size } = param_meta.kind {
+        assert_eq!(size, 5);
+
+        // Element should be nullable Int
+        let element_meta = type_registry.get(element).unwrap();
+        assert!(matches!(
+            element_meta.kind,
+            rive_core::type_system::TypeKind::Optional { .. }
+        ));
+    } else {
+        panic!("Expected array type");
+    }
+}
+
+#[test]
+fn test_reject_optional_syntax() {
+    // Old Optional<T> syntax should now fail
+    let source = r#"fun test(x: Optional<Int>) {}"#;
+    let tokens = tokenize(source).unwrap();
+    let result = parse(&tokens);
+
+    // Should fail because "Optional" is unknown type
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_parse_elvis_operator() {
+    let source = r#"fun test() {
+        let x: Int? = null
+        let y: Int = x ?: 42
+    }"#;
+    let tokens = tokenize(source).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
+
+    let Item::Function(func) = &program.items[0];
+    assert_eq!(func.body.statements.len(), 2);
+
+    // Check the Elvis operator expression
+    if let Statement::Let { initializer, .. } = &func.body.statements[1] {
+        assert!(matches!(initializer, Expression::Elvis { .. }));
+    } else {
+        panic!("Expected let statement with Elvis operator");
+    }
+}
+
+#[test]
+fn test_parse_chained_elvis() {
+    let source = r#"fun test() {
+        let a: Int? = null
+        let b: Int? = null
+        let c: Int = a ?: b ?: 0
+    }"#;
+    let tokens = tokenize(source).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
+
+    let Item::Function(func) = &program.items[0];
+    // Should parse successfully with nested Elvis
+    assert_eq!(func.body.statements.len(), 3);
+}
+
+#[test]
+fn test_parse_safe_call() {
+    let source = r#"fun test() {
+        let x: Text? = null
+        let len: Int? = x?.length()
+    }"#;
+    let tokens = tokenize(source).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
+
+    let Item::Function(func) = &program.items[0];
+    assert_eq!(func.body.statements.len(), 2);
+
+    // Check the SafeCall expression
+    if let Statement::Let { initializer, .. } = &func.body.statements[1] {
+        assert!(matches!(initializer, Expression::SafeCall { .. }));
+    } else {
+        panic!("Expected let statement with SafeCall operator");
+    }
+}
+
+#[test]
+fn test_parse_chained_safe_call() {
+    let source = r#"fun test() {
+        let result: Int? = user?.profile?.age()
+    }"#;
+    let tokens = tokenize(source).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
+
+    let Item::Function(func) = &program.items[0];
+    // Should parse successfully with chained safe calls
+    assert_eq!(func.body.statements.len(), 1);
+}
+
+#[test]
+fn test_parse_elvis_with_safe_call() {
+    let source = r#"fun test() {
+        let name: Text = user?.name ?: "Anonymous"
+    }"#;
+    let tokens = tokenize(source).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
+
+    let Item::Function(func) = &program.items[0];
+    assert_eq!(func.body.statements.len(), 1);
+
+    // Should have Elvis with SafeCall inside
+    if let Statement::Let { initializer, .. } = &func.body.statements[0] {
+        if let Expression::Elvis { value, .. } = initializer {
+            assert!(matches!(**value, Expression::SafeCall { .. }));
+        } else {
+            panic!("Expected Elvis operator");
+        }
+    } else {
+        panic!("Expected let statement");
+    }
+}
+
+#[test]
+fn test_parse_block_expression() {
+    let source = r#"fun test() {
+        let x: Int = {
+            let temp = 10
+            temp * 2
+        }
+    }"#;
+    let tokens = tokenize(source).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
+
+    let Item::Function(func) = &program.items[0];
+    assert_eq!(func.body.statements.len(), 1);
+
+    // Check block expression
+    if let Statement::Let { initializer, .. } = &func.body.statements[0] {
+        assert!(matches!(initializer, Expression::Block(_)));
+    } else {
+        panic!("Expected let statement with block expression");
+    }
+}
+
+#[test]
+fn test_parse_elvis_with_block() {
+    let source = r#"fun test() {
+        let x: Int? = null
+        let y: Int = x ?: {
+            print("Using fallback")
+            42
+        }
+    }"#;
+    let tokens = tokenize(source).unwrap();
+    let (program, _type_registry) = parse(&tokens).unwrap();
+
+    let Item::Function(func) = &program.items[0];
+    assert_eq!(func.body.statements.len(), 2);
+
+    // Elvis with block fallback
+    if let Statement::Let { initializer, .. } = &func.body.statements[1] {
+        if let Expression::Elvis { fallback, .. } = initializer {
+            assert!(matches!(**fallback, Expression::Block(_)));
+        } else {
+            panic!("Expected Elvis operator");
+        }
+    } else {
+        panic!("Expected let statement");
+    }
+}

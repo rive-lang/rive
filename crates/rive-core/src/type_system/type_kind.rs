@@ -21,6 +21,9 @@ pub enum TypeKind {
     /// Unit type (void/no return value)
     Unit,
 
+    /// Null type (bottom type for nullable values)
+    Null,
+
     /// Array type with element type and size
     Array { element: TypeId, size: usize },
 
@@ -54,7 +57,7 @@ impl TypeKind {
     pub const fn is_primitive(&self) -> bool {
         matches!(
             self,
-            Self::Int | Self::Float | Self::Text | Self::Bool | Self::Unit
+            Self::Int | Self::Float | Self::Text | Self::Bool | Self::Unit | Self::Null
         )
     }
 
@@ -79,6 +82,7 @@ impl TypeKind {
             Self::Text => "Text".to_string(),
             Self::Bool => "Bool".to_string(),
             Self::Unit => "Unit".to_string(),
+            Self::Null => "Null".to_string(),
             Self::Array { .. } => "Array".to_string(),
             Self::Optional { .. } => "Optional".to_string(),
             Self::Function { .. } => "Function".to_string(),

@@ -54,6 +54,12 @@ impl fmt::Display for RirExpression {
             Self::While { .. } => write!(f, "while {{ ... }}"),
             Self::For { .. } => write!(f, "for {{ ... }}"),
             Self::Loop { .. } => write!(f, "loop {{ ... }}"),
+            Self::NullLiteral { .. } => write!(f, "null"),
+            Self::Elvis {
+                value, fallback, ..
+            } => write!(f, "({value} ?: {fallback})"),
+            Self::SafeCall { object, call, .. } => write!(f, "({object}?.{call})"),
+            Self::WrapOptional { value, .. } => write!(f, "Some({value})"),
         }
     }
 }

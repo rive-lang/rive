@@ -109,4 +109,19 @@ impl AstLowering {
         let index = self.loop_labels.len() - depth;
         Ok(self.loop_labels[index].clone())
     }
+
+    /// Checks if a type is nullable and returns the inner type if so.
+    ///
+    /// # Returns
+    /// - `Some(inner_type)` if the type is `T?`
+    /// - `None` if the type is not nullable
+    pub(crate) fn get_nullable_inner(&self, type_id: TypeId) -> Option<TypeId> {
+        use rive_core::type_system::TypeKind;
+
+        let type_meta = self.type_registry.get(type_id)?;
+        match type_meta.kind {
+            TypeKind::Optional { inner } => Some(inner),
+            _ => None,
+        }
+    }
 }

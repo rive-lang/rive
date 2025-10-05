@@ -8,10 +8,41 @@ use rive_lexer::TokenKind;
 impl<'a> Parser<'a> {
     /// Parses an expression.
     pub(crate) fn parse_expression(&mut self) -> Result<Expression> {
-        self.parse_or()
+        self.parse_elvis()
     }
 
-    /// Parses logical OR expression (lowest precedence).
+    /// Parses Elvis operator (null-coalescing): `value ?: fallback`
+    ///
+    /// This has the lowest precedence of all operators.
+    fn parse_elvis(&mut self) -> Result<Expression> {
+        let mut expr = self.parse_or()?;
+
+        while self.peek().0.kind == TokenKind::Question {
+            // Check if next token after `?` is `:`
+            if self.check_ahead(1, &TokenKind::Colon) {
+                // Consume `?` and `:`
+                self.advance();
+                self.advance();
+
+                // Parse the fallback expression
+                let fallback = self.parse_or()?;
+                let span = expr.span().merge(fallback.span());
+
+                expr = Expression::Elvis {
+                    value: Box::new(expr),
+                    fallback: Box::new(fallback),
+                    span,
+                };
+            } else {
+                // Not an Elvis operator (might be nullable type `?`), stop parsing
+                break;
+            }
+        }
+
+        Ok(expr)
+    }
+
+    /// Parses logical OR expression.
     fn parse_or(&mut self) -> Result<Expression> {
         let mut expr = self.parse_and()?;
 
@@ -184,28 +215,52 @@ impl<'a> Parser<'a> {
         self.parse_call()
     }
 
-    /// Parses function call or primary expression.
+    /// Parses function call, safe call, or primary expression.
+    ///
+    /// Handles both regular calls `func()` and safe calls `obj?.func()`.
     fn parse_call(&mut self) -> Result<Expression> {
         let mut expr = self.parse_primary()?;
 
-        while self.check(&TokenKind::LeftParen) {
-            self.advance();
-            let arguments = self.parse_argument_list()?;
-            let end_span = self.expect(&TokenKind::RightParen)?;
+        loop {
+            if self.check(&TokenKind::LeftParen) {
+                // Regular function call
+                self.advance();
+                let arguments = self.parse_argument_list()?;
+                let end_span = self.expect(&TokenKind::RightParen)?;
 
-            if let Expression::Variable { name, .. } = &expr {
-                let span = expr.span().merge(end_span);
-                expr = Expression::Call {
-                    callee: name.clone(),
-                    arguments,
+                if let Expression::Variable { name, .. } = &expr {
+                    let span = expr.span().merge(end_span);
+                    expr = Expression::Call {
+                        callee: name.clone(),
+                        arguments,
+                        span,
+                    };
+                } else {
+                    let span = expr.span();
+                    return Err(Error::Parser(
+                        "Only identifiers can be called".to_string(),
+                        span,
+                    ));
+                }
+            } else if self.peek().0.kind == TokenKind::Question
+                && self.check_ahead(1, &TokenKind::Dot)
+            {
+                // Safe call operator `?.`
+                self.advance(); // consume `?`
+                self.advance(); // consume `.`
+
+                // Parse the call expression (method name + args)
+                let call_expr = self.parse_call()?;
+                let span = expr.span().merge(call_expr.span());
+
+                expr = Expression::SafeCall {
+                    object: Box::new(expr),
+                    call: Box::new(call_expr),
                     span,
                 };
             } else {
-                let span = expr.span();
-                return Err(Error::Parser(
-                    "Only identifiers can be called".to_string(),
-                    span,
-                ));
+                // No more calls/safe calls
+                break;
             }
         }
 

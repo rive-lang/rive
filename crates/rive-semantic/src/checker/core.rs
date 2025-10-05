@@ -26,6 +26,39 @@ impl TypeChecker {
             loop_stack: Vec::new(),
         }
     }
+
+    /// Creates a new type checker with an existing symbol table.
+    ///
+    /// This is useful when you need to use a specific TypeRegistry
+    /// (e.g., from the parser) instead of creating a new one.
+    pub fn with_symbols(symbols: SymbolTable) -> Self {
+        Self {
+            symbols,
+            current_function_return_type: None,
+            loop_stack: Vec::new(),
+        }
+    }
+
+    /// Checks if a type is nullable and returns the inner type if so.
+    ///
+    /// # Returns
+    /// - `Some(inner_type)` if the type is `T?`
+    /// - `None` if the type is not nullable
+    pub(crate) fn get_nullable_inner(&self, type_id: TypeId) -> Option<TypeId> {
+        use rive_core::type_system::TypeKind;
+
+        let type_meta = self.symbols.type_registry().get(type_id)?;
+        match type_meta.kind {
+            TypeKind::Optional { inner } => Some(inner),
+            _ => None,
+        }
+    }
+
+    /// Checks if a type is nullable (T?).
+    #[allow(dead_code)] // Used in future tasks
+    pub(crate) fn is_nullable(&self, type_id: TypeId) -> bool {
+        self.get_nullable_inner(type_id).is_some()
+    }
 }
 
 impl Default for TypeChecker {

@@ -59,6 +59,11 @@ impl<'a> Parser<'a> {
             TokenKind::For => Ok(Expression::For(Box::new(self.parse_for()?))),
             TokenKind::Loop => Ok(Expression::Loop(Box::new(self.parse_loop()?))),
             TokenKind::Match => Ok(Expression::Match(Box::new(self.parse_match()?))),
+            // Block expression: `{ statements... }`
+            TokenKind::LeftBrace => {
+                let block = self.parse_block()?;
+                Ok(Expression::Block(Box::new(block)))
+            }
             _ => {
                 let span = self.current_span();
                 Err(Error::Parser(

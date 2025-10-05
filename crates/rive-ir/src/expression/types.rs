@@ -124,4 +124,36 @@ pub enum RirExpression {
         result_type: TypeId,
         span: Span,
     },
+
+    /// Null literal (None in Rust)
+    NullLiteral { type_id: TypeId, span: Span },
+
+    /// Elvis operator (null-coalescing): `value ?: fallback`
+    ///
+    /// Compiles to: `value.unwrap_or_else(|| fallback)`
+    Elvis {
+        value: Box<RirExpression>,
+        fallback: Box<RirExpression>,
+        result_type: TypeId,
+        span: Span,
+    },
+
+    /// Safe call operator: `object?.method()`
+    ///
+    /// Compiles to: `object.and_then(|obj| method(obj))`
+    SafeCall {
+        object: Box<RirExpression>,
+        call: Box<RirExpression>,
+        result_type: TypeId,
+        span: Span,
+    },
+
+    /// Conversion from T to T? (wrapping in Some)
+    ///
+    /// This is inserted by the lowering pass when a T is used where T? is expected.
+    WrapOptional {
+        value: Box<RirExpression>,
+        result_type: TypeId,
+        span: Span,
+    },
 }

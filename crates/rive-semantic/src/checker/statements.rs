@@ -51,7 +51,8 @@ impl TypeChecker {
 
         // If type annotation is present, verify it matches the initializer
         let var_type_id = if let Some(annotated_type) = var_type {
-            if !self.types_compatible(init_type, *annotated_type) {
+            // Check if init_type can be assigned to annotated_type
+            if !self.types_compatible(*annotated_type, init_type) {
                 return Err(self.type_mismatch_error(
                     &format!("Variable '{name}' type mismatch"),
                     *annotated_type,
@@ -92,7 +93,8 @@ impl TypeChecker {
         }
 
         let value_type = self.check_expression(value)?;
-        if !self.types_compatible(value_type, expected_type) {
+        // Check if value_type can be assigned to expected_type
+        if !self.types_compatible(expected_type, value_type) {
             return Err(self.type_mismatch_error(
                 &format!("Cannot assign to variable '{name}'"),
                 expected_type,
@@ -137,7 +139,8 @@ impl TypeChecker {
             TypeId::UNIT
         };
 
-        if !self.types_compatible(value_type, return_type_id) {
+        // Check if value_type can be assigned to return_type_id
+        if !self.types_compatible(return_type_id, value_type) {
             return Err(self.type_mismatch_error(
                 "Return type mismatch",
                 return_type_id,

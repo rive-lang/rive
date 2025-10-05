@@ -30,6 +30,7 @@ impl TypeRegistry {
         registry.register_builtin(TypeId::TEXT, TypeKind::Text, "Text");
         registry.register_builtin(TypeId::BOOL, TypeKind::Bool, "Bool");
         registry.register_builtin(TypeId::UNIT, TypeKind::Unit, "Unit");
+        registry.register_builtin(TypeId::NULL, TypeKind::Null, "Null");
 
         registry
     }
@@ -79,7 +80,24 @@ impl TypeRegistry {
         let source_meta = self.get(source);
 
         match (target_meta, source_meta) {
-            (Some(t), Some(s)) => self.kinds_compatible(&t.kind, &s.kind),
+            (Some(t), Some(s)) => {
+                // Special case 1: T → T? implicit conversion
+                // Check if target is Optional<source>
+                if let TypeKind::Optional { inner } = t.kind
+                    && inner == source
+                {
+                    return true; // T can implicitly convert to T?
+                }
+
+                // Special case 2: Null → T? implicit conversion
+                // Null can convert to any optional type
+                if matches!(s.kind, TypeKind::Null) && matches!(t.kind, TypeKind::Optional { .. }) {
+                    return true; // Null can convert to any T?
+                }
+
+                // Fall back to kind compatibility check
+                self.kinds_compatible(&t.kind, &s.kind)
+            }
             _ => false,
         }
     }
@@ -92,7 +110,8 @@ impl TypeRegistry {
             | (TypeKind::Float, TypeKind::Float)
             | (TypeKind::Text, TypeKind::Text)
             | (TypeKind::Bool, TypeKind::Bool)
-            | (TypeKind::Unit, TypeKind::Unit) => true,
+            | (TypeKind::Unit, TypeKind::Unit)
+            | (TypeKind::Null, TypeKind::Null) => true,
 
             // Arrays must have same element type and size
             (
@@ -193,9 +212,12 @@ impl TypeRegistry {
     }
 
     /// Gets the name of a type for error messages
+    ///
+    /// This uses `display_name()` which properly formats nullable types as `T?`
+    /// instead of `Optional`.
     pub fn get_type_name(&self, id: TypeId) -> String {
         if let Some(meta) = self.get(id) {
-            meta.kind.name()
+            meta.display_name(self)
         } else {
             format!("Unknown({})", id.as_u64())
         }

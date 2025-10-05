@@ -23,6 +23,7 @@ impl TypeId {
     pub const TEXT: TypeId = TypeId(2);
     pub const BOOL: TypeId = TypeId(3);
     pub const UNIT: TypeId = TypeId(4);
+    pub const NULL: TypeId = TypeId(5);
 
     /// Starting ID for user-defined types
     pub const USER_DEFINED_START: u64 = 1000;
