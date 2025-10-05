@@ -106,4 +106,3 @@ fn test_block_expression_with_elvis() {
         "Block expression with Elvis operator should work"
     );
 }
-

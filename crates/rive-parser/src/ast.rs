@@ -43,11 +43,13 @@ pub struct Block {
 /// Statements in Rive.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
-    /// Variable declaration: `let [mut] name [: type] = expr`
+    /// Variable declaration: `let [mut] name[?] [: type[?]] = expr`
     Let {
         name: String,
         mutable: bool,
         var_type: Option<TypeId>,
+        /// Whether to infer as nullable when no explicit type (e.g., `let result? = ...`)
+        infer_nullable: bool,
         initializer: Expression,
         span: Span,
     },

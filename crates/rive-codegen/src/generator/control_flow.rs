@@ -1,12 +1,51 @@
 //! Control flow code generation.
 
-use super::{core::CodeGenerator, labels, utils};
+use super::{core::CodeGenerator, labels};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use rive_core::{Result, type_system::TypeId};
-use rive_ir::{RirBlock, RirExpression, RirPattern};
+use rive_ir::{RirBlock, RirExpression};
+
+/// Parameters for generating a for loop.
+pub(crate) struct ForLoopParams<'a> {
+    pub variable: &'a str,
+    pub start: &'a RirExpression,
+    pub end: &'a RirExpression,
+    pub inclusive: bool,
+    pub body: &'a RirBlock,
+    pub label: &'a Option<String>,
+}
 
 impl CodeGenerator {
+    /// Generates code for an if statement/expression.
+    /// Works for both statements (optional else) and expressions (required else).
+    pub(crate) fn generate_if(
+        &mut self,
+        condition: &RirExpression,
+        then_block: &RirBlock,
+        else_block: Option<&RirBlock>,
+    ) -> Result<TokenStream> {
+        let cond = self.generate_expression(condition)?;
+        let then_body = self.generate_block(then_block)?;
+
+        if let Some(else_blk) = else_block {
+            let else_body = self.generate_block(else_blk)?;
+            Ok(quote! {
+                if #cond {
+                    #then_body
+                } else {
+                    #else_body
+                }
+            })
+        } else {
+            Ok(quote! {
+                if #cond {
+                    #then_body
+                }
+            })
+        }
+    }
+
     /// Generates code for an if expression (must have else).
     pub(crate) fn generate_if_expr(
         &mut self,
@@ -14,17 +53,7 @@ impl CodeGenerator {
         then_block: &RirBlock,
         else_block: &RirBlock,
     ) -> Result<TokenStream> {
-        let cond = self.generate_expression(condition)?;
-        let then_body = self.generate_block(then_block)?;
-        let else_body = self.generate_block(else_block)?;
-
-        Ok(quote! {
-            if #cond {
-                #then_body
-            } else {
-                #else_body
-            }
-        })
+        self.generate_if(condition, then_block, Some(else_block))
     }
 
     /// Generates code for a while loop statement.
@@ -47,22 +76,14 @@ impl CodeGenerator {
     }
 
     /// Generates code for a for loop statement.
-    pub(crate) fn generate_for(
-        &mut self,
-        variable: &str,
-        start: &RirExpression,
-        end: &RirExpression,
-        inclusive: bool,
-        body: &RirBlock,
-        label: &Option<String>,
-    ) -> Result<TokenStream> {
-        let var = format_ident!("{variable}");
-        let start_expr = self.generate_expression(start)?;
-        let end_expr = self.generate_expression(end)?;
-        let body_stmts = self.generate_block(body)?;
-        let range = labels::generate_range(&start_expr, &end_expr, inclusive);
+    pub(crate) fn generate_for(&mut self, params: ForLoopParams<'_>) -> Result<TokenStream> {
+        let var = format_ident!("{}", params.variable);
+        let start_expr = self.generate_expression(params.start)?;
+        let end_expr = self.generate_expression(params.end)?;
+        let body_stmts = self.generate_block(params.body)?;
+        let range = labels::generate_range(&start_expr, &end_expr, params.inclusive);
 
-        Ok(labels::with_label(label, || {
+        Ok(labels::with_label(params.label, || {
             quote! {
                 for #var in #range {
                     #body_stmts
@@ -94,12 +115,35 @@ impl CodeGenerator {
         label: &Option<String>,
         value: &Option<Box<RirExpression>>,
     ) -> Result<TokenStream> {
-        let value_token = value
-            .as_ref()
-            .map(|expr| self.generate_expression(expr))
-            .transpose()?;
+        // Check if we're in a loop expression context (for/while with result variable)
+        if let Some(result_var) = self.current_loop_result_var() {
+            let result_ident = format_ident!("{}", result_var);
 
-        Ok(labels::generate_break_stmt(label, &value_token))
+            // Generate: __result = Some(value); break label;
+            if let Some(expr) = value {
+                let val_expr = self.generate_expression(expr)?;
+                let break_stmt = labels::generate_break_stmt(label, &None);
+                Ok(quote! {
+                    {
+                        #result_ident = Some(#val_expr);
+                        #break_stmt
+                    }
+                })
+            } else {
+                // No value, just break (result stays None)
+                Ok(labels::generate_break_stmt(label, &None))
+            }
+        } else {
+            // In loop expression context, wrap value in Some/None
+            let value_token = if let Some(expr) = value {
+                let val_expr = self.generate_expression(expr)?;
+                Some(quote! { Some(#val_expr) })
+            } else {
+                Some(quote! { None })
+            };
+
+            Ok(labels::generate_break_stmt(label, &value_token))
+        }
     }
 
     /// Generates code for a continue statement.
@@ -107,104 +151,98 @@ impl CodeGenerator {
         Ok(labels::generate_continue_stmt(label))
     }
 
-    /// Generates code for a match expression.
-    pub(crate) fn generate_match_expr(
+    /// Wraps a loop with result variable for expression context.
+    /// This helper reduces duplication across while/for/loop expression generators.
+    fn wrap_loop_as_expression<F>(
         &mut self,
-        scrutinee: &RirExpression,
-        arms: &[(RirPattern, Box<RirExpression>)],
-    ) -> Result<TokenStream> {
-        let val = self.generate_expression(scrutinee)?;
-        let match_val = self.prepare_match_value(val, scrutinee.type_id());
-
-        let match_arms: Result<Vec<_>> = arms
-            .iter()
-            .map(|(pattern, body)| {
-                let pat = self.generate_pattern(pattern)?;
-                let body_expr = self.generate_expression(body)?;
-                Ok(quote! { #pat => #body_expr })
-            })
-            .collect();
-
-        let match_arms = match_arms?;
+        result_var_name: &str,
+        loop_body_gen: F,
+    ) -> Result<TokenStream>
+    where
+        F: FnOnce(&mut Self) -> Result<TokenStream>,
+    {
+        let result_var = format_ident!("{}", result_var_name);
+        self.enter_loop_context(Some(result_var_name.to_string()));
+        let loop_code = loop_body_gen(self)?;
+        self.exit_loop_context();
 
         Ok(quote! {
-            match #match_val {
-                #(#match_arms),*
+            {
+                let mut #result_var = None;
+                #loop_code
+                #result_var
             }
         })
     }
 
-    /// Generates code for a match statement.
-    pub(crate) fn generate_match_stmt(
+    /// Generates code for a while loop expression.
+    /// Returns Option<T> where T is the break value type, or Option<Unit> if no break with value.
+    pub(crate) fn generate_while_expr(
         &mut self,
-        scrutinee: &RirExpression,
-        arms: &[(RirPattern, rive_ir::RirBlock)],
+        condition: &RirExpression,
+        body: &RirBlock,
+        label: &Option<String>,
+        _result_type: TypeId,
     ) -> Result<TokenStream> {
-        let val = self.generate_expression(scrutinee)?;
-        let match_val = self.prepare_match_value(val, scrutinee.type_id());
+        let cond = self.generate_expression(condition)?;
+        let label_clone = label.clone();
 
-        let match_arms: Result<Vec<_>> = arms
-            .iter()
-            .map(|(pattern, body)| {
-                let pat = self.generate_pattern(pattern)?;
-                let body_stmts = self.generate_block(body)?;
-                Ok(quote! {
-                    #pat => {
+        self.wrap_loop_as_expression("__while_result", |generator| {
+            let body_stmts = generator.generate_block(body)?;
+            let while_loop = quote! {
+                while #cond {
+                    #body_stmts
+                }
+            };
+
+            Ok(labels::with_loop_label(&label_clone, while_loop))
+        })
+    }
+
+    /// Generates code for a for loop expression.
+    /// Returns Option<T> where T is the break value type, or Option<Unit> if no break with value.
+    pub(crate) fn generate_for_expr(
+        &mut self,
+        params: ForLoopParams<'_>,
+        _result_type: TypeId,
+    ) -> Result<TokenStream> {
+        let var = format_ident!("{}", params.variable);
+        let start_expr = self.generate_expression(params.start)?;
+        let end_expr = self.generate_expression(params.end)?;
+        let range = labels::generate_range(&start_expr, &end_expr, params.inclusive);
+        let label_clone = params.label.clone();
+
+        self.wrap_loop_as_expression("__for_result", |generator| {
+            let body_stmts = generator.generate_block(params.body)?;
+            let for_loop = quote! {
+                for #var in #range {
+                    #body_stmts
+                }
+            };
+
+            Ok(labels::with_loop_label(&label_clone, for_loop))
+        })
+    }
+
+    /// Generates code for an infinite loop expression.
+    /// Returns Option<T> where T is the break value type, or Option<Unit> if no break with value.
+    pub(crate) fn generate_loop_expr(
+        &mut self,
+        body: &RirBlock,
+        label: &Option<String>,
+    ) -> Result<TokenStream> {
+        let label_clone = label.clone();
+
+        self.wrap_loop_as_expression("__loop_result", |generator| {
+            let body_stmts = generator.generate_block(body)?;
+
+            Ok(labels::with_label(&label_clone, || {
+                quote! {
+                    loop {
                         #body_stmts
                     }
-                })
-            })
-            .collect();
-
-        let match_arms = match_arms?;
-
-        Ok(quote! {
-            match #match_val {
-                #(#match_arms),*
-            }
-        })
-    }
-
-    /// Prepares a value for matching (converts Text to &str).
-    fn prepare_match_value(&self, val: TokenStream, type_id: TypeId) -> TokenStream {
-        if type_id == TypeId::TEXT {
-            quote! { (#val).as_str() }
-        } else {
-            val
-        }
-    }
-
-    /// Generates code for a pattern.
-    fn generate_pattern(&mut self, pattern: &RirPattern) -> Result<TokenStream> {
-        Ok(match pattern {
-            RirPattern::IntLiteral { value, .. } => {
-                let lit = proc_macro2::Literal::i64_unsuffixed(*value);
-                quote! { #lit }
-            }
-            RirPattern::FloatLiteral { value, .. } => {
-                let lit = proc_macro2::Literal::f64_unsuffixed(*value);
-                quote! { #lit }
-            }
-            RirPattern::StringLiteral { value, .. } => {
-                let lit = proc_macro2::Literal::string(value);
-                quote! { #lit }
-            }
-            RirPattern::BoolLiteral { value, .. } => {
-                quote! { #value }
-            }
-            RirPattern::Wildcard { .. } => {
-                quote! { _ }
-            }
-            RirPattern::RangePattern {
-                start,
-                end,
-                inclusive,
-                ..
-            } => {
-                let start_expr = self.generate_expression(start)?;
-                let end_expr = self.generate_expression(end)?;
-                labels::generate_range(&start_expr, &end_expr, *inclusive)
-            }
+                }
+            }))
         })
     }
 
@@ -237,89 +275,5 @@ impl CodeGenerator {
                 }
             })
         }
-    }
-
-    /// Generates code for a while loop expression.
-    pub(crate) fn generate_while_expr(
-        &mut self,
-        condition: &RirExpression,
-        body: &RirBlock,
-        label: &Option<String>,
-        result_type: TypeId,
-    ) -> Result<TokenStream> {
-        let cond = self.generate_expression(condition)?;
-        let body_stmts = self.generate_block(body)?;
-        let default_value = utils::generate_default_value(result_type);
-
-        let break_stmt = labels::generate_break_stmt(label, &default_value);
-
-        Ok(labels::with_label(label, || {
-            quote! {
-                loop {
-                    if !(#cond) {
-                        #break_stmt;
-                    }
-                    #body_stmts
-                }
-            }
-        }))
-    }
-
-    /// Generates code for a for loop expression.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn generate_for_expr(
-        &mut self,
-        variable: &str,
-        start: &RirExpression,
-        end: &RirExpression,
-        inclusive: bool,
-        body: &RirBlock,
-        label: &Option<String>,
-        result_type: TypeId,
-    ) -> Result<TokenStream> {
-        let var = format_ident!("{variable}");
-        let start_expr = self.generate_expression(start)?;
-        let end_expr = self.generate_expression(end)?;
-        let body_stmts = self.generate_block(body)?;
-        let default_value = utils::generate_default_value(result_type);
-        let range = labels::generate_range_iterator(&start_expr, &end_expr, inclusive);
-
-        let break_stmt = labels::generate_break_stmt(label, &default_value);
-
-        let loop_body = labels::with_label(label, || {
-            quote! {
-                loop {
-                    let #var = match iter.next() {
-                        Some(val) => val,
-                        None => { #break_stmt; }
-                    };
-                    #body_stmts
-                }
-            }
-        });
-
-        Ok(quote! {
-            {
-                let mut iter = #range;
-                #loop_body
-            }
-        })
-    }
-
-    /// Generates code for an infinite loop expression.
-    pub(crate) fn generate_loop_expr(
-        &mut self,
-        body: &RirBlock,
-        label: &Option<String>,
-    ) -> Result<TokenStream> {
-        let body_stmts = self.generate_block(body)?;
-
-        Ok(labels::with_label(label, || {
-            quote! {
-                loop {
-                    #body_stmts
-                }
-            }
-        }))
     }
 }

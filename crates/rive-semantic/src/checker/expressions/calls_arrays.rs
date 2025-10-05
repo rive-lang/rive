@@ -118,4 +118,3 @@ impl TypeChecker {
         Ok(array_type)
     }
 }
-

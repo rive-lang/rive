@@ -43,9 +43,11 @@ pub struct ElseIf {
 
 /// While loop - conditional loop with test before each iteration.
 ///
-/// Can return a value via `break value`.
+/// Can return a value via `break label with value`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct While {
+    /// Optional label for this loop
+    pub label: Option<String>,
     /// Loop condition
     pub condition: Box<Expression>,
     /// Loop body
@@ -57,9 +59,11 @@ pub struct While {
 /// For loop - iteration over ranges (and eventually collections).
 ///
 /// Currently supports ranges only (e.g., `1..10`, `1..=10`).
-/// Can return a value via `break value`.
+/// Can return a value via `break label with value`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct For {
+    /// Optional label for this loop
+    pub label: Option<String>,
     /// Iterator variable name
     pub variable: String,
     /// Range/iterable expression
@@ -73,9 +77,11 @@ pub struct For {
 /// Loop - infinite loop construct.
 ///
 /// Executes until a `break` statement is encountered.
-/// Can return a value via `break value`.
+/// Can return a value via `break label with value`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Loop {
+    /// Optional label for this loop
+    pub label: Option<String>,
     /// Loop body
     pub body: Block,
     /// Source span
@@ -84,14 +90,14 @@ pub struct Loop {
 
 /// Break statement - exits from loop(s).
 ///
-/// - `break` - exits innermost loop (returns Unit)
-/// - `break 2` - exits 2 nested loops (returns Unit)
+/// - `break` - exits innermost loop (returns null)
+/// - `break label` - exits labeled loop (returns null)
 /// - `break with value` - exits innermost loop and returns value
-/// - `break 2 with value` - exits 2 nested loops and returns value
+/// - `break label with value` - exits labeled loop and returns value
 #[derive(Debug, Clone, PartialEq)]
 pub struct Break {
-    /// Number of loop levels to break (None = 1 = innermost)
-    pub depth: Option<u32>,
+    /// Optional label of the loop to break from (None = innermost)
+    pub label: Option<String>,
     /// Optional value to return from the loop
     pub value: Option<Box<Expression>>,
     /// Source span
@@ -101,11 +107,11 @@ pub struct Break {
 /// Continue statement - skips to next iteration.
 ///
 /// - `continue` - continues innermost loop
-/// - `continue 2` - continues outer loop (skip 2 levels)
+/// - `continue label` - continues labeled loop
 #[derive(Debug, Clone, PartialEq)]
 pub struct Continue {
-    /// Number of loop levels to skip (None = 1 = innermost)
-    pub depth: Option<u32>,
+    /// Optional label of the loop to continue (None = innermost)
+    pub label: Option<String>,
     /// Source span
     pub span: Span,
 }

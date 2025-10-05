@@ -59,6 +59,22 @@ impl TypeChecker {
     pub(crate) fn is_nullable(&self, type_id: TypeId) -> bool {
         self.get_nullable_inner(type_id).is_some()
     }
+
+    /// Gets or creates a nullable version of the given type.
+    /// If the type is already nullable, returns it as-is.
+    pub(crate) fn get_or_create_nullable(&mut self, type_id: TypeId) -> TypeId {
+        use rive_core::type_system::TypeKind;
+
+        // Check if already nullable
+        if let Some(meta) = self.symbols.type_registry().get(type_id)
+            && matches!(meta.kind, TypeKind::Optional { .. })
+        {
+            return type_id; // Already nullable
+        }
+
+        // Create nullable version
+        self.symbols.type_registry_mut().create_optional(type_id)
+    }
 }
 
 impl Default for TypeChecker {

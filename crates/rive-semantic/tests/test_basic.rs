@@ -184,4 +184,3 @@ fn test_no_main_function() {
     "#;
     assert!(should_fail(source));
 }
-

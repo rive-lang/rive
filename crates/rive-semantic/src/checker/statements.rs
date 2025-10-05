@@ -14,9 +14,17 @@ impl TypeChecker {
                 name,
                 mutable,
                 var_type,
+                infer_nullable,
                 initializer,
                 span,
-            } => self.check_let(name, *mutable, var_type, initializer, *span),
+            } => self.check_let(
+                name,
+                *mutable,
+                var_type,
+                *infer_nullable,
+                initializer,
+                *span,
+            ),
 
             Statement::Assignment { name, value, span } => {
                 self.check_assignment(name, value, *span)
@@ -44,14 +52,15 @@ impl TypeChecker {
         name: &str,
         mutable: bool,
         var_type: &Option<rive_core::type_system::TypeId>,
+        infer_nullable: bool,
         initializer: &Expression,
         span: rive_core::Span,
     ) -> Result<()> {
         let init_type = self.check_expression(initializer)?;
 
-        // If type annotation is present, verify it matches the initializer
+        // Determine the final variable type
         let var_type_id = if let Some(annotated_type) = var_type {
-            // Check if init_type can be assigned to annotated_type
+            // Explicit type annotation
             if !self.types_compatible(*annotated_type, init_type) {
                 return Err(self.type_mismatch_error(
                     &format!("Variable '{name}' type mismatch"),
@@ -61,7 +70,11 @@ impl TypeChecker {
                 ));
             }
             *annotated_type
+        } else if infer_nullable {
+            // Infer as nullable (e.g., `let x? = expr`)
+            self.get_or_create_nullable(init_type)
         } else {
+            // Normal type inference
             init_type
         };
 

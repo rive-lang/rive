@@ -157,3 +157,13 @@ pub enum RirExpression {
         span: Span,
     },
 }
+
+impl RirExpression {
+    /// Returns true if this expression is a loop (for/while/loop).
+    pub fn is_loop(&self) -> bool {
+        matches!(
+            self,
+            Self::For { .. } | Self::While { .. } | Self::Loop { .. }
+        )
+    }
+}

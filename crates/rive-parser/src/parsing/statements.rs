@@ -24,14 +24,30 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a let statement.
+    /// Supports both `let x? = expr` (infer nullable) and `let x: Type? = expr` (explicit nullable)
     fn parse_let_statement(&mut self) -> Result<Statement> {
         let start_span = self.expect(&TokenKind::Let)?;
 
         let mutable = self.match_token(&TokenKind::Mut);
         let name = self.expect_identifier()?;
 
+        // Check for `?` after variable name (e.g., `let result? = ...`)
+        let infer_nullable = self.match_token(&TokenKind::Question);
+
         let var_type = if self.check(&TokenKind::Colon) {
             self.advance();
+
+            // If we have both `name?` and `: Type`, that's an error
+            if infer_nullable {
+                return Err(rive_core::Error::Parser(
+                    format!(
+                        "Cannot use '{}?' with explicit type annotation. Use ': Type?' for explicit nullable type",
+                        name
+                    ),
+                    start_span,
+                ));
+            }
+
             Some(self.parse_type()?)
         } else {
             None
@@ -45,6 +61,7 @@ impl<'a> Parser<'a> {
             name,
             mutable,
             var_type,
+            infer_nullable,
             initializer,
             span: start_span.merge(end_span),
         })

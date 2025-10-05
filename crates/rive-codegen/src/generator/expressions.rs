@@ -71,7 +71,16 @@ impl CodeGenerator {
                 result_type,
                 ..
             } => {
-                self.generate_for_expr(variable, start, end, *inclusive, body, label, *result_type)
+                use crate::generator::control_flow::ForLoopParams;
+                let params = ForLoopParams {
+                    variable,
+                    start,
+                    end,
+                    inclusive: *inclusive,
+                    body,
+                    label,
+                };
+                self.generate_for_expr(params, *result_type)
             }
             RirExpression::Loop { body, label, .. } => self.generate_loop_expr(body, label),
 
@@ -138,12 +147,36 @@ impl CodeGenerator {
 
     /// Generates code for a unary operation.
     fn generate_unary(&mut self, op: &UnaryOp, operand: &RirExpression) -> Result<TokenStream> {
-        let operand_expr = self.generate_expression(operand)?;
-        let operator = match op {
-            UnaryOp::Negate => quote! { - },
-            UnaryOp::Not => quote! { ! },
-        };
-        Ok(quote! { (#operator #operand_expr) })
+        use quote::TokenStreamExt;
+
+        // For literals, directly generate negative/not literal without parentheses
+        // This avoids unwanted spaces like "- 1" and makes output cleaner
+        match (op, operand) {
+            (UnaryOp::Negate, RirExpression::IntLiteral { value, .. }) => {
+                let lit = proc_macro2::Literal::i64_unsuffixed(-value);
+                Ok(quote! { #lit })
+            }
+            (UnaryOp::Negate, RirExpression::FloatLiteral { value, .. }) => {
+                let lit = proc_macro2::Literal::f64_unsuffixed(-value);
+                Ok(quote! { #lit })
+            }
+            // For all other cases, generate operator without spaces using TokenStream
+            _ => {
+                let operand_expr = self.generate_expression(operand)?;
+                let op_char = match op {
+                    UnaryOp::Negate => '-',
+                    UnaryOp::Not => '!',
+                };
+
+                let mut tokens = proc_macro2::TokenStream::new();
+                tokens.append(proc_macro2::Punct::new(
+                    op_char,
+                    proc_macro2::Spacing::Alone,
+                ));
+                tokens.extend(operand_expr);
+                Ok(tokens)
+            }
+        }
     }
 
     /// Generates code for a function call.

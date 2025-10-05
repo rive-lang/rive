@@ -81,7 +81,10 @@ fn test_can_pass_non_nullable_to_nullable_param() {
             process(value)
         }
     "#;
-    assert!(test_null_safety(source), "Can pass T to function expecting T?");
+    assert!(
+        test_null_safety(source),
+        "Can pass T to function expecting T?"
+    );
 }
 
 #[test]
@@ -136,6 +139,8 @@ fn test_null_cannot_assign_to_non_nullable() {
             let x: Int = null
         }
     "#;
-    assert!(should_fail(source), "null cannot be assigned to T (non-nullable)");
+    assert!(
+        should_fail(source),
+        "null cannot be assigned to T (non-nullable)"
+    );
 }
-

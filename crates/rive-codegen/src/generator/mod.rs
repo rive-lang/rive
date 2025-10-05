@@ -5,6 +5,7 @@ mod core;
 mod expressions;
 mod inline;
 mod labels;
+mod patterns;
 mod statements;
 mod types;
 mod utils;

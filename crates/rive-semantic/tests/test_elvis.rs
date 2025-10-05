@@ -105,4 +105,3 @@ fn test_elvis_type_mismatch() {
         "Elvis operator should reject incompatible types"
     );
 }
-

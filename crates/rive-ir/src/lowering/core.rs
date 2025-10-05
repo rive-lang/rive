@@ -80,11 +80,12 @@ impl AstLowering {
     }
 
     /// Enters a new loop scope and returns the label for this loop.
-    pub(crate) fn enter_loop(&mut self) -> Option<String> {
+    /// If user_label is provided, uses that; otherwise generates an automatic label.
+    pub(crate) fn enter_loop(&mut self, user_label: Option<String>) -> Option<String> {
         self.loop_depth += 1;
 
-        // Generate label without the ' prefix (will be added in codegen)
-        let label = Some(format!("loop_{}", self.loop_depth));
+        // Use user-provided label or generate automatic label
+        let label = user_label.or_else(|| Some(format!("loop_{}", self.loop_depth)));
 
         self.loop_labels.push(label.clone());
         label
@@ -96,18 +97,32 @@ impl AstLowering {
         self.loop_depth = self.loop_depth.saturating_sub(1);
     }
 
-    /// Gets the loop label at the specified depth (1 = current loop).
-    pub(crate) fn get_loop_label(&self, depth: usize) -> rive_core::Result<Option<String>> {
-        if depth == 0 || depth > self.loop_labels.len() {
+    /// Gets the loop label - either from user-provided label name or defaults to innermost loop.
+    pub(crate) fn resolve_loop_label(
+        &self,
+        user_label: Option<String>,
+    ) -> rive_core::Result<Option<String>> {
+        if let Some(label_name) = user_label {
+            // Find the label in the stack
+            for loop_label in self.loop_labels.iter().rev() {
+                if loop_label.as_ref() == Some(&label_name) {
+                    return Ok(Some(label_name));
+                }
+            }
+            // Label not found
             return Err(rive_core::Error::Semantic(format!(
-                "Invalid loop depth: {depth}"
+                "Label '{label_name}' not found"
             )));
         }
 
-        // depth = 1 means current loop (last in stack)
-        // depth = 2 means parent loop (second from last)
-        let index = self.loop_labels.len() - depth;
-        Ok(self.loop_labels[index].clone())
+        // No user label, use innermost loop
+        if self.loop_labels.is_empty() {
+            return Err(rive_core::Error::Semantic(
+                "Break/continue outside of loop".to_string(),
+            ));
+        }
+
+        Ok(self.loop_labels.last().unwrap().clone())
     }
 
     /// Checks if a type is nullable and returns the inner type if so.

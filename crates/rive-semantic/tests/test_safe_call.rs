@@ -97,4 +97,3 @@ fn test_safe_call_result_always_nullable() {
         "Safe call result must be nullable, cannot assign to non-nullable"
     );
 }
-

@@ -60,28 +60,13 @@ impl TypeChecker {
             Expression::Array { elements, span } => self.check_array(elements, *span),
 
             // Control flow expressions
-            Expression::If(_) => {
-                // TODO: Implement type checking for if expressions
-                Ok(TypeId::UNIT)
-            }
-            Expression::While(_) => {
-                // TODO: Implement type checking for while expressions
-                Ok(TypeId::UNIT)
-            }
-            Expression::For(_) => {
-                // TODO: Implement type checking for for expressions
-                Ok(TypeId::UNIT)
-            }
-            Expression::Loop(_) => {
-                // TODO: Implement type checking for loop expressions
-                Ok(TypeId::UNIT)
-            }
-            Expression::Match(_) => {
-                // TODO: Implement type checking for match expressions
-                Ok(TypeId::UNIT)
-            }
+            Expression::If(if_expr) => self.check_if(if_expr, true),
+            Expression::While(while_loop) => self.check_while_expr(while_loop),
+            Expression::For(for_loop) => self.check_for_expr(for_loop),
+            Expression::Loop(loop_expr) => self.check_loop_expr(loop_expr),
+            Expression::Match(match_expr) => self.check_match(match_expr, true),
             Expression::Range(_) => {
-                // TODO: Implement type checking for range expressions
+                // Range expressions are used in for loops - return Unit for now
                 Ok(TypeId::UNIT)
             }
 
@@ -95,11 +80,9 @@ impl TypeChecker {
                 span,
             } => self.check_elvis(value, fallback, *span),
 
-            Expression::SafeCall {
-                object,
-                call,
-                span,
-            } => self.check_safe_call(object, call, *span),
+            Expression::SafeCall { object, call, span } => {
+                self.check_safe_call(object, call, *span)
+            }
         }
     }
 
@@ -120,4 +103,3 @@ impl TypeChecker {
         Ok(TypeId::UNIT)
     }
 }
-

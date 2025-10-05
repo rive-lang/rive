@@ -3,11 +3,11 @@
 use proc_macro2::TokenStream;
 use quote::quote;
 
-/// Generates a Rust lifetime from an optional label.
+/// Generates a Rust label (as lifetime) from an optional label.
 pub fn generate_label_lifetime(label: &Option<String>) -> Option<syn::Lifetime> {
     label
         .as_ref()
-        .map(|lbl| syn::Lifetime::new(&format!("'{lbl}"), proc_macro2::Span::call_site()))
+        .map(|lbl| syn::Lifetime::new(&format!("'{}", lbl), proc_macro2::Span::call_site()))
 }
 
 /// Generates a labeled loop statement.
@@ -17,9 +17,9 @@ where
 {
     let body = generate_body();
 
-    if let Some(label_lifetime) = generate_label_lifetime(label) {
+    if let Some(label_lt) = generate_label_lifetime(label) {
         quote! {
-            #label_lifetime: #body
+            #label_lt: #body
         }
     } else {
         body
@@ -28,9 +28,9 @@ where
 
 /// Generates a break statement with optional label and value.
 pub fn generate_break_stmt(label: &Option<String>, value: &Option<TokenStream>) -> TokenStream {
-    let label_lifetime = generate_label_lifetime(label);
+    let label_lt = generate_label_lifetime(label);
 
-    match (label_lifetime, value) {
+    match (label_lt, value) {
         (Some(lbl), Some(val)) => quote! { break #lbl #val },
         (Some(lbl), None) => quote! { break #lbl },
         (None, Some(val)) => quote! { break #val },
@@ -40,8 +40,8 @@ pub fn generate_break_stmt(label: &Option<String>, value: &Option<TokenStream>) 
 
 /// Generates a continue statement with optional label.
 pub fn generate_continue_stmt(label: &Option<String>) -> TokenStream {
-    if let Some(label_lifetime) = generate_label_lifetime(label) {
-        quote! { continue #label_lifetime }
+    if let Some(label_lt) = generate_label_lifetime(label) {
+        quote! { continue #label_lt }
     } else {
         quote! { continue }
     }
@@ -56,15 +56,14 @@ pub fn generate_range(start: &TokenStream, end: &TokenStream, inclusive: bool) -
     }
 }
 
-/// Generates an iterator from a range.
-pub fn generate_range_iterator(
-    start: &TokenStream,
-    end: &TokenStream,
-    inclusive: bool,
-) -> TokenStream {
-    if inclusive {
-        quote! { (#start..=#end).into_iter() }
+/// Generates a loop (while/for) with optional label using lifetime syntax.
+/// This is specifically for while/for loops which need different label handling than loop.
+pub fn with_loop_label(label: &Option<String>, loop_code: TokenStream) -> TokenStream {
+    if let Some(lbl) = label {
+        let label_lifetime =
+            syn::Lifetime::new(&format!("'{}", lbl), proc_macro2::Span::call_site());
+        quote! { #label_lifetime: #loop_code }
     } else {
-        quote! { (#start..#end).into_iter() }
+        loop_code
     }
 }

@@ -5,22 +5,6 @@ use rive_core::{Error, Result};
 use rive_lexer::TokenKind;
 
 impl<'a> Parser<'a> {
-    /// Parses an optional depth parameter (used by break/continue).
-    pub(crate) fn parse_depth(&mut self) -> Result<Option<u32>> {
-        if self.check(&TokenKind::Integer) {
-            let token = self.peek();
-            let depth = token
-                .0
-                .text
-                .parse()
-                .map_err(|_| Error::Parser("Invalid depth value".to_string(), token.1))?;
-            self.advance();
-            Ok(Some(depth))
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Parses a literal value into an i64.
     pub(crate) fn parse_i64_literal(&mut self) -> Result<i64> {
         let token = self.peek();

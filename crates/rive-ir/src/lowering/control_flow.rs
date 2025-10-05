@@ -1,10 +1,10 @@
 //! Control flow lowering from AST to RIR.
 
 use crate::lowering::core::AstLowering;
-use crate::{RirBlock, RirExpression, RirPattern, RirStatement};
+use crate::{RirBlock, RirExpression, RirStatement};
 use rive_core::{Error, Result, TypeId};
 use rive_parser::Expression;
-use rive_parser::control_flow::{Break, Continue, For, If, Loop, Match, Pattern, While};
+use rive_parser::control_flow::{Break, Continue, For, If, Loop, While};
 
 impl AstLowering {
     /// Lowers an if expression to RIR.
@@ -88,8 +88,8 @@ impl AstLowering {
     pub(crate) fn lower_while_expr(&mut self, while_loop: &While) -> Result<RirExpression> {
         let condition = Box::new(self.lower_expression(&while_loop.condition)?);
 
-        // Enter loop context for label generation
-        let label = self.enter_loop();
+        // Enter loop context with optional user label
+        let label = self.enter_loop(while_loop.label.clone());
 
         let body = self.lower_block(&while_loop.body)?;
 
@@ -130,8 +130,8 @@ impl AstLowering {
         // Define loop variable (Int type for ranges, immutable)
         self.define_variable(for_loop.variable.clone(), TypeId::INT, false);
 
-        // Enter loop context for label generation
-        let label = self.enter_loop();
+        // Enter loop context with optional user label
+        let label = self.enter_loop(for_loop.label.clone());
 
         let body = self.lower_block(&for_loop.body)?;
 
@@ -158,8 +158,8 @@ impl AstLowering {
 
     /// Lowers an infinite loop expression to RIR.
     pub(crate) fn lower_loop_expr(&mut self, loop_expr: &Loop) -> Result<RirExpression> {
-        // Enter loop context for label generation
-        let label = self.enter_loop();
+        // Enter loop context with optional user label
+        let label = self.enter_loop(loop_expr.label.clone());
 
         let body = self.lower_block(&loop_expr.body)?;
 
@@ -179,10 +179,8 @@ impl AstLowering {
 
     /// Lowers a break statement to RIR.
     pub(crate) fn lower_break(&mut self, break_stmt: &Break) -> Result<RirStatement> {
-        let depth = break_stmt.depth.unwrap_or(1) as usize;
-
-        // Convert depth to label
-        let label = self.get_loop_label(depth)?;
+        // Resolve user label or use innermost loop
+        let label = self.resolve_loop_label(break_stmt.label.clone())?;
 
         let value = break_stmt
             .value
@@ -200,119 +198,12 @@ impl AstLowering {
 
     /// Lowers a continue statement to RIR.
     pub(crate) fn lower_continue(&mut self, continue_stmt: &Continue) -> Result<RirStatement> {
-        let depth = continue_stmt.depth.unwrap_or(1) as usize;
-
-        // Convert depth to label
-        let label = self.get_loop_label(depth)?;
+        // Resolve user label or use innermost loop
+        let label = self.resolve_loop_label(continue_stmt.label.clone())?;
 
         Ok(RirStatement::Continue {
             label,
             span: continue_stmt.span,
-        })
-    }
-
-    /// Lowers a match expression to RIR.
-    pub(crate) fn lower_match_expr(&mut self, match_expr: &Match) -> Result<RirExpression> {
-        let scrutinee = Box::new(self.lower_expression(&match_expr.scrutinee)?);
-
-        let arms: Result<Vec<_>> = match_expr
-            .arms
-            .iter()
-            .map(|arm| {
-                let pattern = self.lower_pattern(&arm.pattern)?;
-                let body = Box::new(self.lower_expression(&arm.body)?);
-                Ok((pattern, body))
-            })
-            .collect();
-
-        let arms = arms?;
-
-        // Get result type from first arm (all arms have same type after semantic analysis)
-        let result_type = arms
-            .first()
-            .map(|(_, expr)| expr.type_id())
-            .unwrap_or(TypeId::UNIT);
-
-        Ok(RirExpression::Match {
-            scrutinee,
-            arms,
-            result_type,
-            span: match_expr.span,
-        })
-    }
-
-    /// Lowers a match as a statement.
-    pub(crate) fn lower_match_stmt(&mut self, match_expr: &Match) -> Result<RirStatement> {
-        let scrutinee = Box::new(self.lower_expression(&match_expr.scrutinee)?);
-
-        let arms: Result<Vec<_>> = match_expr
-            .arms
-            .iter()
-            .map(|arm| {
-                let pattern = self.lower_pattern(&arm.pattern)?;
-
-                // Convert expression to block
-                let body_expr = self.lower_expression(&arm.body)?;
-                let body = RirBlock {
-                    statements: vec![RirStatement::Expression {
-                        expr: Box::new(body_expr),
-                        span: arm.span,
-                    }],
-                    final_expr: None,
-                    span: arm.span,
-                };
-
-                Ok((pattern, body))
-            })
-            .collect();
-
-        Ok(RirStatement::Match {
-            scrutinee,
-            arms: arms?,
-            span: match_expr.span,
-        })
-    }
-
-    /// Lowers a pattern to RIR.
-    pub(crate) fn lower_pattern(&mut self, pattern: &Pattern) -> Result<RirPattern> {
-        Ok(match pattern {
-            Pattern::Integer { value, span } => RirPattern::IntLiteral {
-                value: *value,
-                span: *span,
-            },
-            Pattern::Float { value, span } => RirPattern::FloatLiteral {
-                value: *value,
-                span: *span,
-            },
-            Pattern::String { value, span } => RirPattern::StringLiteral {
-                value: value.clone(),
-                span: *span,
-            },
-            Pattern::Boolean { value, span } => RirPattern::BoolLiteral {
-                value: *value,
-                span: *span,
-            },
-            Pattern::Null { span: _ } => {
-                return Err(Error::Semantic(
-                    "Null patterns not yet supported".to_string(),
-                ));
-            }
-            Pattern::Wildcard { span } => RirPattern::Wildcard { span: *span },
-            Pattern::Range {
-                start,
-                end,
-                inclusive,
-                span,
-            } => {
-                let start_expr = self.lower_expression(start)?;
-                let end_expr = self.lower_expression(end)?;
-                RirPattern::RangePattern {
-                    start: Box::new(start_expr),
-                    end: Box::new(end_expr),
-                    inclusive: *inclusive,
-                    span: *span,
-                }
-            }
         })
     }
 }

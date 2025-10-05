@@ -49,8 +49,8 @@ pub enum TokenKind {
     #[token("loop")]
     Loop,
 
-    #[token("match")]
-    Match,
+    #[token("when")]
+    When,
 
     #[token("in")]
     In,
@@ -191,7 +191,7 @@ impl fmt::Display for TokenKind {
             Self::Break => write!(f, "break"),
             Self::Continue => write!(f, "continue"),
             Self::Loop => write!(f, "loop"),
-            Self::Match => write!(f, "match"),
+            Self::When => write!(f, "when"),
             Self::In => write!(f, "in"),
             Self::With => write!(f, "with"),
             Self::True => write!(f, "true"),
