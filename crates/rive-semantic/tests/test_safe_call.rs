@@ -1,14 +1,26 @@
 //! Safe call operator (?.) semantic analysis tests.
 
-mod common;
-use common::{compile, should_fail};
+use rive_core::Result;
+use rive_lexer::tokenize;
+use rive_parser::parse;
 use rive_semantic::analyze_with_registry;
+
+/// Helper to compile and analyze Rive source code.
+fn compile_and_analyze(source: &str) -> Result<()> {
+    let tokens = tokenize(source)?;
+    let (ast, type_registry) = parse(&tokens)?;
+    analyze_with_registry(&ast, type_registry)?;
+    Ok(())
+}
 
 /// Helper to test safe call scenarios.
 fn test_safe_call(source: &str) -> bool {
-    compile(source)
-        .and_then(|(ast, type_registry)| analyze_with_registry(&ast, type_registry))
-        .is_ok()
+    compile_and_analyze(source).is_ok()
+}
+
+/// Helper to check if source should fail.
+fn should_fail(source: &str) -> bool {
+    compile_and_analyze(source).is_err()
 }
 
 #[test]

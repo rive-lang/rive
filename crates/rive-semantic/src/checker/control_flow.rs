@@ -1,9 +1,9 @@
 //! Control flow type checking (if, while, for, loop, break, continue, range).
 
-use crate::checker::{core::TypeChecker, loops::LoopContext};
+use crate::checker::core::TypeChecker;
 use rive_core::type_system::TypeId;
 use rive_core::{Error, Result};
-use rive_parser::control_flow::{Break, Continue, For, If, Loop, Range, While};
+use rive_parser::control_flow::{Break, Continue, If};
 
 impl TypeChecker {
     /// Checks an if expression/statement.

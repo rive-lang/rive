@@ -1,6 +1,6 @@
 //! Statement lowering.
 
-use crate::RirStatement;
+use crate::{RirExpression, RirStatement};
 use crate::lowering::core::AstLowering;
 use rive_core::Result;
 use rive_parser::ast::Statement as AstStatement;
@@ -20,6 +20,24 @@ impl AstLowering {
                 // Type is already a TypeId from the parser
                 let type_id = var_type.unwrap_or_else(|| value.type_id());
 
+                // Check if we need T -> T? conversion
+                let final_value = if value.type_id() != type_id {
+                    // Check if this is T -> T? conversion
+                    if let Some(inner_type) = self.get_nullable_inner(type_id) 
+                        && value.type_id() == inner_type {
+                        // Create WrapOptional node for T -> T? conversion
+                        RirExpression::WrapOptional {
+                            value: Box::new(value),
+                            result_type: type_id,
+                            span: *span,
+                        }
+                    } else {
+                        value
+                    }
+                } else {
+                    value
+                };
+
                 // Register variable in symbol table
                 self.define_variable(name.clone(), type_id, *mutable);
 
@@ -30,7 +48,7 @@ impl AstLowering {
                     name: name.clone(),
                     type_id,
                     is_mutable: *mutable,
-                    value: Box::new(value),
+                    value: Box::new(final_value),
                     memory_strategy,
                     span: *span,
                 })

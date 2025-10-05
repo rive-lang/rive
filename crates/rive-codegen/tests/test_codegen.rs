@@ -204,8 +204,11 @@ fn test_generate_safe_call_operator() {
         fun get_value(): Int? {
             return null
         }
+        fun process(x: Int): Int {
+            return x * 2
+        }
         fun main() {
-            let x: Int? = get_value()?.to_string()
+            let x: Int? = get_value()?.process()
         }
     "#;
     let rust_code = compile_to_rust(source);
