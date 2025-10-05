@@ -43,18 +43,3 @@ pub fn binary_op_token(op: &BinaryOp) -> TokenStream {
         BinaryOp::Or => quote! { || },
     }
 }
-
-/// Generates a default value for a given type.
-/// Returns None if the type is Unit (no value needed).
-pub fn generate_default_value(type_id: rive_core::type_system::TypeId) -> Option<TokenStream> {
-    use rive_core::type_system::TypeId;
-
-    match type_id {
-        TypeId::INT => Some(quote! { 0 }),
-        TypeId::FLOAT => Some(quote! { 0.0 }),
-        TypeId::TEXT => Some(quote! { String::new() }),
-        TypeId::BOOL => Some(quote! { false }),
-        TypeId::UNIT => None,
-        _ => None,
-    }
-}

@@ -43,33 +43,15 @@ impl TypeChecker {
         Ok(())
     }
 
-    /// Validates loop depth for break/continue statements.
-    pub(crate) fn validate_loop_depth(&self, depth: Option<u32>, span: Span) -> Result<usize> {
-        let actual_depth = depth.unwrap_or(1) as usize;
-
-        if actual_depth == 0 {
-            return Err(Error::SemanticWithSpan(
-                "Depth must be at least 1".to_string(),
-                span,
-            ));
-        }
-
-        if actual_depth > self.loop_stack.len() {
-            return Err(Error::SemanticWithSpan(
-                format!(
-                    "Depth {} exceeds loop nesting level {}",
-                    actual_depth,
-                    self.loop_stack.len()
-                ),
-                span,
-            ));
-        }
-
-        Ok(actual_depth)
-    }
-
-    /// Checks if two types are compatible.
-    pub(crate) fn types_compatible(&self, a: TypeId, b: TypeId) -> bool {
-        a == b
+    /// Checks if two types are compatible for assignment.
+    ///
+    /// This delegates to the TypeRegistry's compatibility checking,
+    /// which handles:
+    /// - Exact type matches
+    /// - T → T? implicit conversions
+    /// - Null → T? implicit conversions
+    /// - Other implicit conversions defined by the type system
+    pub(crate) fn types_compatible(&self, target: TypeId, source: TypeId) -> bool {
+        self.symbols.type_registry().are_compatible(target, source)
     }
 }

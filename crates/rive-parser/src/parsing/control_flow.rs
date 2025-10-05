@@ -54,22 +54,23 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Parses a while loop.
-    pub(crate) fn parse_while(&mut self) -> Result<While> {
+    /// Parses a while loop (with optional label).
+    pub(crate) fn parse_while(&mut self, label: Option<String>) -> Result<While> {
         let start = self.expect(&TokenKind::While)?;
         let condition = Box::new(self.parse_condition()?);
         let body = self.parse_block()?;
         let end = body.span;
 
         Ok(While {
+            label,
             condition,
             body,
             span: start.merge(end),
         })
     }
 
-    /// Parses a for loop.
-    pub(crate) fn parse_for(&mut self) -> Result<For> {
+    /// Parses a for loop (with optional label).
+    pub(crate) fn parse_for(&mut self, label: Option<String>) -> Result<For> {
         let start = self.expect(&TokenKind::For)?;
 
         let variable = self.expect_identifier()?;
@@ -80,6 +81,7 @@ impl<'a> Parser<'a> {
         let end = body.span;
 
         Ok(For {
+            label,
             variable,
             iterable,
             body,
@@ -87,21 +89,22 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Parses an infinite loop.
-    pub(crate) fn parse_loop(&mut self) -> Result<Loop> {
+    /// Parses an infinite loop (with optional label).
+    pub(crate) fn parse_loop(&mut self, label: Option<String>) -> Result<Loop> {
         let start = self.expect(&TokenKind::Loop)?;
         let body = self.parse_block()?;
         let end = body.span;
 
         Ok(Loop {
+            label,
             body,
             span: start.merge(end),
         })
     }
 
-    /// Parses a match expression.
+    /// Parses a when expression.
     pub(crate) fn parse_match(&mut self) -> Result<Match> {
-        let start = self.expect(&TokenKind::Match)?;
+        let start = self.expect(&TokenKind::When)?;
         let scrutinee = Box::new(self.parse_expression()?);
         self.expect(&TokenKind::LeftBrace)?;
 
@@ -118,7 +121,7 @@ impl<'a> Parser<'a> {
 
         if arms.is_empty() {
             return Err(Error::Parser(
-                "Match expression must have at least one arm".to_string(),
+                "When expression must have at least one arm".to_string(),
                 start.merge(end),
             ));
         }
@@ -217,10 +220,25 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Parses a break statement.
+    /// Parses a break statement: `break [label] [with value]`
     pub(crate) fn parse_break(&mut self) -> Result<Break> {
         let start = self.expect(&TokenKind::Break)?;
-        let depth = self.parse_depth()?;
+
+        // Check for optional label
+        let label = if self.check(&TokenKind::Identifier) && !self.check_ahead(1, &TokenKind::Equal)
+        {
+            // Only parse identifier if it's not followed by '=' (to avoid conflict with assignments)
+            let id = self.peek().0.text.clone();
+            // Check if this is 'with' keyword
+            if id == "with" {
+                None
+            } else {
+                self.advance();
+                Some(id)
+            }
+        } else {
+            None
+        };
 
         let value = if self.check(&TokenKind::With) {
             self.advance();
@@ -230,17 +248,25 @@ impl<'a> Parser<'a> {
         };
 
         Ok(Break {
-            depth,
+            label,
             value,
             span: start,
         })
     }
 
-    /// Parses a continue statement.
+    /// Parses a continue statement: `continue [label]`
     pub(crate) fn parse_continue(&mut self) -> Result<Continue> {
         let start = self.expect(&TokenKind::Continue)?;
-        let depth = self.parse_depth()?;
 
-        Ok(Continue { depth, span: start })
+        // Check for optional label
+        let label = if self.check(&TokenKind::Identifier) {
+            let id = self.peek().0.text.clone();
+            self.advance();
+            Some(id)
+        } else {
+            None
+        };
+
+        Ok(Continue { label, span: start })
     }
 }

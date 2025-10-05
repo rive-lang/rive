@@ -55,17 +55,33 @@ impl AstLowering {
         }
     }
 
+    /// Gets or creates a nullable version of the given type.
+    /// If the type is already nullable, returns it as-is.
+    pub(crate) fn get_or_create_nullable(&mut self, type_id: TypeId) -> TypeId {
+        // Check if already nullable
+        if let Some(meta) = self.type_registry.get(type_id)
+            && matches!(meta.kind, rive_core::type_system::TypeKind::Optional { .. })
+        {
+            return type_id; // Already nullable
+        }
+
+        // Create nullable version
+        self.type_registry.create_optional(type_id)
+    }
+
     /// Infers the result type of a loop by finding break statements with values.
-    pub(crate) fn infer_loop_result_type(&self, body: &RirBlock) -> TypeId {
+    /// Returns Optional<T> where T is the break value type, or Optional<Unit> if no break with value.
+    pub(crate) fn infer_loop_result_type(&mut self, body: &RirBlock) -> TypeId {
         // Look for break statements with values in the body
         for stmt in &body.statements {
-            if let Some(type_id) = Self::find_break_value_type(stmt) {
-                return type_id;
+            if let Some(inner_type) = Self::find_break_value_type(stmt) {
+                // Return Optional<T> where T is the break value type
+                return self.get_or_create_nullable(inner_type);
             }
         }
 
-        // No break with value found, return Unit
-        TypeId::UNIT
+        // No break with value found, return Optional<Unit> (nullable)
+        self.get_or_create_nullable(TypeId::UNIT)
     }
 
     /// Find break statement with value and return its type.

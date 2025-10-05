@@ -1,8 +1,27 @@
-//! Integration tests for semantic analysis.
+//! Basic semantic analysis tests for variables, functions, and operations.
 
+use rive_core::Result;
 use rive_lexer::tokenize;
 use rive_parser::parse;
-use rive_semantic::analyze;
+use rive_semantic::analyze_with_registry;
+
+/// Helper to compile and analyze Rive source code.
+fn compile_and_analyze(source: &str) -> Result<()> {
+    let tokens = tokenize(source)?;
+    let (ast, type_registry) = parse(&tokens)?;
+    analyze_with_registry(&ast, type_registry)?;
+    Ok(())
+}
+
+/// Helper to check if source should pass.
+fn should_pass(source: &str) -> bool {
+    compile_and_analyze(source).is_ok()
+}
+
+/// Helper to check if source should fail.
+fn should_fail(source: &str) -> bool {
+    compile_and_analyze(source).is_err()
+}
 
 #[test]
 fn test_simple_variable_declaration() {
@@ -11,10 +30,7 @@ fn test_simple_variable_declaration() {
             let x: Int = 42
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_ok());
+    assert!(should_pass(source));
 }
 
 #[test]
@@ -24,10 +40,7 @@ fn test_type_inference() {
             let x = 42
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_ok());
+    assert!(should_pass(source));
 }
 
 #[test]
@@ -37,10 +50,7 @@ fn test_type_mismatch() {
             let x: Int = "hello"
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_err());
+    assert!(should_fail(source));
 }
 
 #[test]
@@ -50,10 +60,7 @@ fn test_undefined_variable() {
             let x = y
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_err());
+    assert!(should_fail(source));
 }
 
 #[test]
@@ -67,10 +74,7 @@ fn test_function_call() {
             let result = add(1, 2)
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_ok());
+    assert!(should_pass(source));
 }
 
 #[test]
@@ -84,10 +88,7 @@ fn test_function_wrong_argument_count() {
             let result = add(1)
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_err());
+    assert!(should_fail(source));
 }
 
 #[test]
@@ -101,10 +102,7 @@ fn test_function_wrong_argument_type() {
             let result = add(1, "hello")
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_err());
+    assert!(should_fail(source));
 }
 
 #[test]
@@ -117,10 +115,7 @@ fn test_return_type_mismatch() {
         fun main() {
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_err());
+    assert!(should_fail(source));
 }
 
 #[test]
@@ -131,10 +126,7 @@ fn test_print_function() {
             print("hello")
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_ok());
+    assert!(should_pass(source));
 }
 
 #[test]
@@ -144,10 +136,7 @@ fn test_array_literal() {
             let arr = [1, 2, 3]
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_ok());
+    assert!(should_pass(source));
 }
 
 #[test]
@@ -157,10 +146,7 @@ fn test_array_type_mismatch() {
             let arr = [1, "hello", 3]
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_err());
+    assert!(should_fail(source));
 }
 
 #[test]
@@ -173,10 +159,7 @@ fn test_binary_operations() {
             let w = 7 / 8
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_ok());
+    assert!(should_pass(source));
 }
 
 #[test]
@@ -189,10 +172,7 @@ fn test_comparison_operations() {
             let d = 7 != 8
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_ok());
+    assert!(should_pass(source));
 }
 
 #[test]
@@ -202,8 +182,5 @@ fn test_no_main_function() {
             return x + y
         }
     "#;
-    let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
-    let result = analyze(&ast);
-    assert!(result.is_err());
+    assert!(should_fail(source));
 }

@@ -73,6 +73,25 @@ impl TypeMetadata {
         self.memory_strategy.is_unique() || self.explicit_unique
     }
 
+    /// Returns the display name for this type (e.g., "Int?" for Optional<Int>)
+    ///
+    /// This is used in error messages and user-facing output.
+    /// For nullable types, it shows "T?" instead of "Optional".
+    pub fn display_name(&self, registry: &super::TypeRegistry) -> String {
+        match &self.kind {
+            TypeKind::Optional { inner } => {
+                // Recursively get inner type's display name
+                if let Some(inner_meta) = registry.get(*inner) {
+                    format!("{}?", inner_meta.display_name(registry))
+                } else {
+                    "Unknown?".to_string()
+                }
+            }
+            // For all other types, use the kind's name
+            _ => self.kind.name(),
+        }
+    }
+
     /// Returns the Rust type representation for code generation
     pub fn rust_type(&self, registry: &super::TypeRegistry) -> String {
         match &self.kind {
@@ -87,6 +106,12 @@ impl TypeMetadata {
             }
             TypeKind::Bool => "bool".to_string(),
             TypeKind::Unit => "()".to_string(),
+            TypeKind::Null => {
+                // Null is a bottom type for nullable values
+                // It should not appear as a standalone type in generated code
+                // If it does, represent it as an empty Option
+                "Option<()>".to_string()
+            }
             TypeKind::Array { element, size } => {
                 let elem_type = registry.rust_type(*element);
                 format!("[{elem_type}; {size}]")

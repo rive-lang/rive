@@ -29,7 +29,10 @@ impl AstLowering {
                 span: *span,
             }),
 
-            AstExpression::Null { span } => Ok(RirExpression::Unit { span: *span }),
+            AstExpression::Null { span } => Ok(RirExpression::NullLiteral {
+                type_id: rive_core::type_system::TypeId::NULL,
+                span: *span,
+            }),
 
             AstExpression::Variable { name, span } => {
                 // Look up variable type from symbol table
@@ -138,6 +141,65 @@ impl AstLowering {
                 "Range expressions can only be used in for loops".to_string(),
             )),
             AstExpression::Block(block) => self.lower_block_expr(block),
+
+            // Null safety operators
+            AstExpression::Elvis {
+                value,
+                fallback,
+                span,
+            } => {
+                let value_expr = self.lower_expression(value)?;
+                let fallback_expr = self.lower_expression(fallback)?;
+
+                // Determine result type:
+                // If value is T?, and fallback is T, result is T
+                // If value is T?, and fallback is T?, result is T?
+                // If value is T (non-nullable), result is T (redundant but valid)
+                let result_type = if let Some(inner) = self.get_nullable_inner(value_expr.type_id())
+                {
+                    // value is T?
+                    if self.get_nullable_inner(fallback_expr.type_id()).is_some() {
+                        // fallback is also nullable, result is T?
+                        fallback_expr.type_id()
+                    } else {
+                        // fallback is T, result is T
+                        inner
+                    }
+                } else {
+                    // value is non-nullable, result is value's type
+                    value_expr.type_id()
+                };
+
+                Ok(RirExpression::Elvis {
+                    value: Box::new(value_expr),
+                    fallback: Box::new(fallback_expr),
+                    result_type,
+                    span: *span,
+                })
+            }
+
+            AstExpression::SafeCall { object, call, span } => {
+                let object_expr = self.lower_expression(object)?;
+                let call_expr = self.lower_expression(call)?;
+
+                // Safe call always returns a nullable type
+                // If call returns T, safe call returns T?
+                let call_type = call_expr.type_id();
+                let result_type = if self.get_nullable_inner(call_type).is_some() {
+                    // call already returns T?, keep it
+                    call_type
+                } else {
+                    // call returns T, wrap in T?
+                    self.type_registry.create_optional(call_type)
+                };
+
+                Ok(RirExpression::SafeCall {
+                    object: Box::new(object_expr),
+                    call: Box::new(call_expr),
+                    result_type,
+                    span: *span,
+                })
+            }
         }
     }
 

@@ -28,13 +28,40 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Expression::Null { span })
             }
-            // Variables
+            // Variables or labeled loops
             TokenKind::Identifier | TokenKind::Print => {
-                self.advance();
-                Ok(Expression::Variable {
-                    name: token.0.text.clone(),
-                    span,
-                })
+                // Check if this is a labeled loop: `label: for/while/loop`
+                if self.check_ahead(1, &TokenKind::Colon) {
+                    let label = token.0.text.clone();
+                    self.advance(); // consume identifier
+                    self.advance(); // consume colon
+
+                    // Parse the loop with the label
+                    match self.peek().0.kind {
+                        TokenKind::For => {
+                            Ok(Expression::For(Box::new(self.parse_for(Some(label))?)))
+                        }
+                        TokenKind::While => {
+                            Ok(Expression::While(Box::new(self.parse_while(Some(label))?)))
+                        }
+                        TokenKind::Loop => {
+                            Ok(Expression::Loop(Box::new(self.parse_loop(Some(label))?)))
+                        }
+                        _ => {
+                            let span = self.current_span();
+                            Err(Error::Parser(
+                                "Expected 'for', 'while', or 'loop' after label".to_string(),
+                                span,
+                            ))
+                        }
+                    }
+                } else {
+                    self.advance();
+                    Ok(Expression::Variable {
+                        name: token.0.text.clone(),
+                        span,
+                    })
+                }
             }
             // Parenthesized expression
             TokenKind::LeftParen => {
@@ -55,10 +82,15 @@ impl<'a> Parser<'a> {
             }
             // Control flow expressions
             TokenKind::If => Ok(Expression::If(Box::new(self.parse_if()?))),
-            TokenKind::While => Ok(Expression::While(Box::new(self.parse_while()?))),
-            TokenKind::For => Ok(Expression::For(Box::new(self.parse_for()?))),
-            TokenKind::Loop => Ok(Expression::Loop(Box::new(self.parse_loop()?))),
-            TokenKind::Match => Ok(Expression::Match(Box::new(self.parse_match()?))),
+            TokenKind::While => Ok(Expression::While(Box::new(self.parse_while(None)?))),
+            TokenKind::For => Ok(Expression::For(Box::new(self.parse_for(None)?))),
+            TokenKind::Loop => Ok(Expression::Loop(Box::new(self.parse_loop(None)?))),
+            TokenKind::When => Ok(Expression::Match(Box::new(self.parse_match()?))),
+            // Block expression: `{ statements... }`
+            TokenKind::LeftBrace => {
+                let block = self.parse_block()?;
+                Ok(Expression::Block(Box::new(block)))
+            }
             _ => {
                 let span = self.current_span();
                 Err(Error::Parser(

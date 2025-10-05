@@ -1,9 +1,9 @@
 //! Control flow type checking (if, while, for, loop, break, continue, range).
 
-use crate::checker::{core::TypeChecker, loops::LoopContext};
+use crate::checker::core::TypeChecker;
 use rive_core::type_system::TypeId;
 use rive_core::{Error, Result};
-use rive_parser::control_flow::{Break, Continue, For, If, Loop, Range, While};
+use rive_parser::control_flow::{Break, Continue, For, If, Loop, While};
 
 impl TypeChecker {
     /// Checks an if expression/statement.
@@ -53,94 +53,6 @@ impl TypeChecker {
         }
     }
 
-    /// Checks a while loop.
-    pub(crate) fn check_while(&mut self, while_loop: &While) -> Result<TypeId> {
-        self.check_bool_condition(&while_loop.condition, "While", while_loop.span)?;
-
-        // Enter loop context
-        self.loop_stack.push(LoopContext::new());
-
-        // Check body
-        self.check_block(&while_loop.body)?;
-
-        // Exit loop context and determine return type
-        let loop_ctx = self.loop_stack.pop().unwrap();
-        Ok(loop_ctx.break_type.unwrap_or(TypeId::UNIT))
-    }
-
-    /// Checks a for loop.
-    pub(crate) fn check_for(&mut self, for_loop: &For) -> Result<TypeId> {
-        // Check iterable (currently only ranges)
-        let _iterable_type = self.check_expression(&for_loop.iterable)?;
-
-        // Enter new scope for loop variable
-        self.symbols.enter_scope();
-
-        // Define loop variable (currently Int for ranges)
-        let symbol = crate::symbol_table::Symbol::new(
-            for_loop.variable.clone(),
-            TypeId::INT,
-            false, // Loop variables are immutable
-        );
-        self.symbols.define(symbol)?;
-
-        // Enter loop context
-        self.loop_stack.push(LoopContext::new());
-
-        // Check body
-        self.check_block(&for_loop.body)?;
-
-        // Exit loop context
-        let loop_ctx = self.loop_stack.pop().unwrap();
-
-        // Exit scope
-        self.symbols.exit_scope();
-
-        Ok(loop_ctx.break_type.unwrap_or(TypeId::UNIT))
-    }
-
-    /// Checks an infinite loop.
-    pub(crate) fn check_loop(&mut self, loop_expr: &Loop) -> Result<TypeId> {
-        // Enter loop context
-        self.loop_stack.push(LoopContext::new());
-
-        // Check body
-        self.check_block(&loop_expr.body)?;
-
-        // Exit loop context
-        let loop_ctx = self.loop_stack.pop().unwrap();
-
-        Ok(loop_ctx.break_type.unwrap_or(TypeId::UNIT))
-    }
-
-    /// Checks a range expression.
-    pub(crate) fn check_range(&mut self, range: &Range) -> Result<TypeId> {
-        let start_type = self.check_expression(&range.start)?;
-        let end_type = self.check_expression(&range.end)?;
-
-        // For Phase 1, only support Int ranges
-        if start_type != TypeId::INT {
-            let registry = self.symbols.type_registry();
-            let start_str = registry.get_type_name(start_type);
-            return Err(Error::SemanticWithSpan(
-                format!("Range start must be Int, found '{start_str}'"),
-                range.span,
-            ));
-        }
-
-        if end_type != TypeId::INT {
-            let registry = self.symbols.type_registry();
-            let end_str = registry.get_type_name(end_type);
-            return Err(Error::SemanticWithSpan(
-                format!("Range end must be Int, found '{end_str}'"),
-                range.span,
-            ));
-        }
-
-        // Return Int type to represent range
-        Ok(TypeId::INT)
-    }
-
     /// Checks a break statement.
     pub(crate) fn check_break(&mut self, break_stmt: &Break) -> Result<TypeId> {
         // Validate we're in a loop
@@ -151,11 +63,8 @@ impl TypeChecker {
             ));
         }
 
-        // Validate depth
-        let actual_depth = self.validate_loop_depth(break_stmt.depth, break_stmt.span)?;
-
-        // Get target loop
-        let target_loop_idx = self.loop_stack.len() - actual_depth;
+        // Find target loop by label
+        let target_loop_idx = self.find_loop_by_label(&break_stmt.label, break_stmt.span)?;
         self.loop_stack[target_loop_idx].has_break = true;
 
         // Check value type consistency
@@ -206,9 +115,121 @@ impl TypeChecker {
             ));
         }
 
-        // Validate depth
-        self.validate_loop_depth(continue_stmt.depth, continue_stmt.span)?;
+        // Find target loop by label
+        self.find_loop_by_label(&continue_stmt.label, continue_stmt.span)?;
 
         Ok(TypeId::UNIT)
+    }
+
+    /// Finds a loop context by label (or returns innermost if no label).
+    fn find_loop_by_label(&self, label: &Option<String>, span: rive_core::Span) -> Result<usize> {
+        if let Some(label_name) = label {
+            // Find loop with matching label
+            for (idx, ctx) in self.loop_stack.iter().enumerate().rev() {
+                if ctx.label.as_ref() == Some(label_name) {
+                    return Ok(idx);
+                }
+            }
+            // Label not found
+            Err(Error::SemanticWithSpan(
+                format!("Label '{label_name}' not found"),
+                span,
+            ))
+        } else {
+            // No label, use innermost loop
+            Ok(self.loop_stack.len() - 1)
+        }
+    }
+
+    /// Checks a while loop expression.
+    /// Returns Optional<T> where T is the break value type, or Optional<Unit> if no break with value.
+    pub(crate) fn check_while_expr(&mut self, while_loop: &While) -> Result<TypeId> {
+        // Check condition
+        self.check_bool_condition(&while_loop.condition, "While", while_loop.span)?;
+
+        // Enter loop context
+        let loop_ctx = crate::checker::loops::LoopContext::new(while_loop.label.clone());
+        self.loop_stack.push(loop_ctx);
+
+        // Check body statements
+        for stmt in &while_loop.body.statements {
+            self.check_statement(stmt)?;
+        }
+
+        // Exit loop context and get result type
+        let loop_ctx = self.loop_stack.pop().unwrap();
+        let result_type = if let Some(break_type) = loop_ctx.break_type {
+            // Has break with value: return Optional<T>
+            self.get_or_create_nullable(break_type)
+        } else {
+            // No break with value: return Optional<Unit>
+            self.get_or_create_nullable(TypeId::UNIT)
+        };
+
+        Ok(result_type)
+    }
+
+    /// Checks a for loop expression.
+    /// Returns Optional<T> where T is the break value type, or Optional<Unit> if no break with value.
+    pub(crate) fn check_for_expr(&mut self, for_loop: &For) -> Result<TypeId> {
+        // Check iterable (should be a range)
+        self.check_expression(&for_loop.iterable)?;
+
+        // Enter new scope for loop variable
+        self.symbols.enter_scope();
+
+        // Define loop variable (Int type for ranges, immutable)
+        let symbol =
+            crate::symbol_table::Symbol::new(for_loop.variable.clone(), TypeId::INT, false);
+        self.symbols.define(symbol)?;
+
+        // Enter loop context
+        let loop_ctx = crate::checker::loops::LoopContext::new(for_loop.label.clone());
+        self.loop_stack.push(loop_ctx);
+
+        // Check body statements
+        for stmt in &for_loop.body.statements {
+            self.check_statement(stmt)?;
+        }
+
+        // Exit loop context and get result type
+        let loop_ctx = self.loop_stack.pop().unwrap();
+        let result_type = if let Some(break_type) = loop_ctx.break_type {
+            // Has break with value: return Optional<T>
+            self.get_or_create_nullable(break_type)
+        } else {
+            // No break with value: return Optional<Unit>
+            self.get_or_create_nullable(TypeId::UNIT)
+        };
+
+        // Exit scope
+        self.symbols.exit_scope();
+
+        Ok(result_type)
+    }
+
+    /// Checks an infinite loop expression.
+    /// Returns Optional<T> where T is the break value type, or Optional<Unit> if no break with value.
+    pub(crate) fn check_loop_expr(&mut self, loop_expr: &Loop) -> Result<TypeId> {
+        // Enter loop context
+        let loop_ctx = crate::checker::loops::LoopContext::new(loop_expr.label.clone());
+        self.loop_stack.push(loop_ctx);
+
+        // Check body statements
+        for stmt in &loop_expr.body.statements {
+            self.check_statement(stmt)?;
+        }
+
+        // Exit loop context and get result type
+        let loop_ctx = self.loop_stack.pop().unwrap();
+        let result_type = if let Some(break_type) = loop_ctx.break_type {
+            // Has break with value: return Optional<T>
+            self.get_or_create_nullable(break_type)
+        } else {
+            // No break with value: return Optional<Unit>
+            self.get_or_create_nullable(TypeId::UNIT)
+        };
+
+        Ok(result_type)
     }
 }

@@ -7,23 +7,35 @@ use rive_lexer::TokenKind;
 
 impl<'a> Parser<'a> {
     /// Parses a type annotation and returns a TypeId.
+    ///
+    /// Supports nullable types with `?` suffix: `Int?`, `Text?`, etc.
     pub(crate) fn parse_type(&mut self) -> Result<TypeId> {
         let token = self.peek();
 
-        match &token.0.kind {
+        let base_type = match &token.0.kind {
             TokenKind::Identifier => self.parse_named_type(),
             TokenKind::LeftBracket => self.parse_array_type(),
             _ => {
                 let span = self.current_span();
-                Err(Error::Parser(
+                return Err(Error::Parser(
                     format!("Expected type, found '{}'", token.0.text),
                     span,
-                ))
+                ));
             }
+        }?;
+
+        // Check for nullable type suffix `?`
+        if self.peek().0.kind == TokenKind::Question {
+            self.advance(); // consume `?`
+            Ok(self.type_registry_mut().create_optional(base_type))
+        } else {
+            Ok(base_type)
         }
     }
 
-    /// Parses a named type (Int, Float, Text, Bool, Optional<T>).
+    /// Parses a named type (Int, Float, Text, Bool).
+    ///
+    /// Note: Nullable types are handled by `parse_type()` with the `?` suffix.
     fn parse_named_type(&mut self) -> Result<TypeId> {
         let type_name = self.peek().0.text.clone();
         let span = self.current_span();
@@ -34,12 +46,6 @@ impl<'a> Parser<'a> {
             "Float" => Ok(TypeId::FLOAT),
             "Text" => Ok(TypeId::TEXT),
             "Bool" => Ok(TypeId::BOOL),
-            "Optional" => {
-                self.expect(&TokenKind::Less)?;
-                let inner_type = self.parse_type()?;
-                self.expect(&TokenKind::Greater)?;
-                Ok(self.type_registry_mut().create_optional(inner_type))
-            }
             _ => Err(Error::Parser(format!("Unknown type '{type_name}'"), span)),
         }
     }

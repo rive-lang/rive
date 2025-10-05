@@ -1,7 +1,6 @@
 //! Tests for code generation from RIR.
 
 use rive_codegen::CodeGenerator;
-use rive_core::type_system::TypeRegistry;
 use rive_ir::AstLowering;
 use rive_lexer::tokenize;
 use rive_parser::parse;
@@ -9,10 +8,9 @@ use rive_parser::parse;
 fn compile_to_rust(source: &str) -> String {
     // Full pipeline: Source → Tokens → AST → RIR → Optimized RIR → Rust
     let tokens = tokenize(source).unwrap();
-    let (ast, _type_registry) = parse(&tokens).unwrap();
+    let (ast, type_registry) = parse(&tokens).unwrap();
 
-    // Create type registry and lowering
-    let type_registry = TypeRegistry::new();
+    // Use the type registry from parser
     let mut lowering = AstLowering::new(type_registry);
     let rir_module = lowering.lower_program(&ast).unwrap();
 
@@ -174,4 +172,61 @@ fn test_inline_optimization() {
     // Complex function should not be inlined
     assert!(rust_code.contains("fn complex_function("));
     assert!(!rust_code.contains("#[inline]\nfn complex_function("));
+}
+
+// ==================== Null Safety Tests ====================
+
+#[test]
+fn test_generate_null_literal() {
+    let source = r#"fun main() { let x: Int? = null }"#;
+    let rust_code = compile_to_rust(source);
+    assert!(rust_code.contains("None"), "null should compile to None");
+}
+
+#[test]
+fn test_generate_elvis_operator() {
+    let source = r#"
+        fun main() {
+            let x: Int? = null
+            let y: Int = x ?: 42
+        }
+    "#;
+    let rust_code = compile_to_rust(source);
+    assert!(
+        rust_code.contains("unwrap_or") || rust_code.contains("unwrap_or_else"),
+        "Elvis operator should compile to unwrap_or or unwrap_or_else"
+    );
+}
+
+#[test]
+fn test_generate_safe_call_operator() {
+    let source = r#"
+        fun get_value(): Int? {
+            return null
+        }
+        fun process(x: Int): Int {
+            return x * 2
+        }
+        fun main() {
+            let x: Int? = get_value()?.process()
+        }
+    "#;
+    let rust_code = compile_to_rust(source);
+    // Safe call should use Option's map/and_then methods
+    assert!(
+        rust_code.contains("and_then") || rust_code.contains("map"),
+        "Safe call should compile to and_then or map"
+    );
+}
+
+#[test]
+fn test_generate_nullable_type_conversion() {
+    let source = r#"
+        fun main() {
+            let x: Int = 42
+            let y: Int? = x
+        }
+    "#;
+    let rust_code = compile_to_rust(source);
+    assert!(rust_code.contains("Some"), "T -> T? should wrap in Some");
 }

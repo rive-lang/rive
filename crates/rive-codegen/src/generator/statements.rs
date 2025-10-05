@@ -42,8 +42,13 @@ impl CodeGenerator {
                 Ok(quote! { #array_name[#index_expr] = #value_expr; })
             }
             RirStatement::Expression { expr, .. } => {
-                let expression = self.generate_expression(expr)?;
-                Ok(quote! { #expression; })
+                // Special handling: if expression is a loop, generate as statement without return value
+                if expr.is_loop() {
+                    self.generate_loop_stmt(expr)
+                } else {
+                    let expression = self.generate_expression(expr)?;
+                    Ok(quote! { #expression; })
+                }
             }
             RirStatement::Return { value, .. } => {
                 if let Some(expr) = value {
@@ -58,27 +63,7 @@ impl CodeGenerator {
                 then_block,
                 else_block,
                 ..
-            } => {
-                let cond = self.generate_expression(condition)?;
-                let then_body = self.generate_block(then_block)?;
-
-                if let Some(else_blk) = else_block {
-                    let else_body = self.generate_block(else_blk)?;
-                    Ok(quote! {
-                        if #cond {
-                            #then_body
-                        } else {
-                            #else_body
-                        }
-                    })
-                } else {
-                    Ok(quote! {
-                        if #cond {
-                            #then_body
-                        }
-                    })
-                }
-            }
+            } => self.generate_if(condition, then_block, else_block.as_ref()),
             RirStatement::Block { block, .. } => {
                 let body = self.generate_block(block)?;
                 Ok(quote! { { #body } })
@@ -97,7 +82,18 @@ impl CodeGenerator {
                 body,
                 label,
                 ..
-            } => self.generate_for(variable, start, end, *inclusive, body, label),
+            } => {
+                use crate::generator::control_flow::ForLoopParams;
+                let params = ForLoopParams {
+                    variable,
+                    start,
+                    end,
+                    inclusive: *inclusive,
+                    body,
+                    label,
+                };
+                self.generate_for(params)
+            }
             RirStatement::Loop { body, label, .. } => self.generate_loop(body, label),
             RirStatement::Break { label, value, .. } => self.generate_break(label, value),
             RirStatement::Continue { label, .. } => self.generate_continue(label),

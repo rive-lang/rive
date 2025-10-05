@@ -43,11 +43,13 @@ pub struct Block {
 /// Statements in Rive.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
-    /// Variable declaration: `let [mut] name [: type] = expr`
+    /// Variable declaration: `let [mut] name[?] [: type[?]] = expr`
     Let {
         name: String,
         mutable: bool,
         var_type: Option<TypeId>,
+        /// Whether to infer as nullable when no explicit type (e.g., `let result? = ...`)
+        infer_nullable: bool,
         initializer: Expression,
         span: Span,
     },
@@ -144,6 +146,24 @@ pub enum Expression {
 
     /// Block expression: `{ statements... }`
     Block(Box<Block>),
+
+    /// Elvis operator (null-coalescing): `value ?: fallback`
+    ///
+    /// Returns `value` if non-null, otherwise evaluates and returns `fallback`.
+    Elvis {
+        value: Box<Expression>,
+        fallback: Box<Expression>,
+        span: Span,
+    },
+
+    /// Safe call operator: `object?.method()` or `object?.field`
+    ///
+    /// Evaluates to null if `object` is null, otherwise calls the method/accesses field.
+    SafeCall {
+        object: Box<Expression>,
+        call: Box<Expression>,
+        span: Span,
+    },
 }
 
 impl Expression {
@@ -168,6 +188,8 @@ impl Expression {
             Self::Match(expr) => expr.span,
             Self::Range(expr) => expr.span,
             Self::Block(block) => block.span,
+            Self::Elvis { span, .. } => *span,
+            Self::SafeCall { span, .. } => *span,
         }
     }
 }

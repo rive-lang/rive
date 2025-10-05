@@ -71,9 +71,29 @@ impl CodeGenerator {
                 result_type,
                 ..
             } => {
-                self.generate_for_expr(variable, start, end, *inclusive, body, label, *result_type)
+                use crate::generator::control_flow::ForLoopParams;
+                let params = ForLoopParams {
+                    variable,
+                    start,
+                    end,
+                    inclusive: *inclusive,
+                    body,
+                    label,
+                };
+                self.generate_for_expr(params, *result_type)
             }
             RirExpression::Loop { body, label, .. } => self.generate_loop_expr(body, label),
+
+            // Nullable operations
+            RirExpression::NullLiteral { .. } => Ok(quote! { None }),
+            RirExpression::Elvis {
+                value, fallback, ..
+            } => self.generate_elvis(value, fallback),
+            RirExpression::SafeCall { object, call, .. } => self.generate_safe_call(object, call),
+            RirExpression::WrapOptional { value, .. } => {
+                let value_expr = self.generate_expression(value)?;
+                Ok(quote! { Some(#value_expr) })
+            }
         }
     }
 
@@ -127,12 +147,36 @@ impl CodeGenerator {
 
     /// Generates code for a unary operation.
     fn generate_unary(&mut self, op: &UnaryOp, operand: &RirExpression) -> Result<TokenStream> {
-        let operand_expr = self.generate_expression(operand)?;
-        let operator = match op {
-            UnaryOp::Negate => quote! { - },
-            UnaryOp::Not => quote! { ! },
-        };
-        Ok(quote! { (#operator #operand_expr) })
+        use quote::TokenStreamExt;
+
+        // For literals, directly generate negative/not literal without parentheses
+        // This avoids unwanted spaces like "- 1" and makes output cleaner
+        match (op, operand) {
+            (UnaryOp::Negate, RirExpression::IntLiteral { value, .. }) => {
+                let lit = proc_macro2::Literal::i64_unsuffixed(-value);
+                Ok(quote! { #lit })
+            }
+            (UnaryOp::Negate, RirExpression::FloatLiteral { value, .. }) => {
+                let lit = proc_macro2::Literal::f64_unsuffixed(-value);
+                Ok(quote! { #lit })
+            }
+            // For all other cases, generate operator without spaces using TokenStream
+            _ => {
+                let operand_expr = self.generate_expression(operand)?;
+                let op_char = match op {
+                    UnaryOp::Negate => '-',
+                    UnaryOp::Not => '!',
+                };
+
+                let mut tokens = proc_macro2::TokenStream::new();
+                tokens.append(proc_macro2::Punct::new(
+                    op_char,
+                    proc_macro2::Spacing::Alone,
+                ));
+                tokens.extend(operand_expr);
+                Ok(tokens)
+            }
+        }
     }
 
     /// Generates code for a function call.
@@ -197,5 +241,63 @@ impl CodeGenerator {
         let array_expr = self.generate_expression(array)?;
         let index_expr = self.generate_expression(index)?;
         Ok(quote! { #array_expr[#index_expr] })
+    }
+
+    /// Generates code for Elvis operator (null-coalescing).
+    ///
+    /// # Example
+    /// `value ?: fallback` compiles to:
+    /// - `value.unwrap_or_else(|| fallback)` if fallback is an expression
+    /// - `value.unwrap_or(fallback)` if fallback is a simple value
+    fn generate_elvis(
+        &mut self,
+        value: &RirExpression,
+        fallback: &RirExpression,
+    ) -> Result<TokenStream> {
+        let value_expr = self.generate_expression(value)?;
+        let fallback_expr = self.generate_expression(fallback)?;
+
+        // Check if fallback is a simple literal or variable
+        // If so, use unwrap_or, otherwise use unwrap_or_else
+        let is_simple = matches!(
+            fallback,
+            RirExpression::IntLiteral { .. }
+                | RirExpression::FloatLiteral { .. }
+                | RirExpression::StringLiteral { .. }
+                | RirExpression::BoolLiteral { .. }
+                | RirExpression::Variable { .. }
+                | RirExpression::NullLiteral { .. }
+        );
+
+        if is_simple {
+            Ok(quote! { #value_expr.unwrap_or(#fallback_expr) })
+        } else {
+            Ok(quote! { #value_expr.unwrap_or_else(|| #fallback_expr) })
+        }
+    }
+
+    /// Generates code for Safe Call operator.
+    ///
+    /// # Example
+    /// `object?.method()` compiles to:
+    /// - `object.and_then(|obj| /* rewrite method() to use obj */)`
+    ///
+    /// # Note
+    /// Currently, we use a simplified approach. The call expression
+    /// is evaluated independently, but it should reference the object.
+    /// A more sophisticated approach would rewrite the call to use
+    /// the unwrapped object value.
+    fn generate_safe_call(
+        &mut self,
+        object: &RirExpression,
+        call: &RirExpression,
+    ) -> Result<TokenStream> {
+        let object_expr = self.generate_expression(object)?;
+        let call_expr = self.generate_expression(call)?;
+
+        // Generate: object.map(|_| call)
+        // In a real implementation, we'd need to rewrite the call to use the unwrapped object
+        // For now, we assume the call is self-contained
+        Ok(quote! { #object_expr.and_then(|_obj| Some(#call_expr)) })
     }
 }

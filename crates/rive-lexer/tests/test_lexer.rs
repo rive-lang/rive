@@ -174,14 +174,14 @@ fn test_negative_numbers() {
 
 #[test]
 fn test_control_flow_keywords() {
-    let source = "loop match in";
+    let source = "loop when in";
     let tokens = tokenize(source).unwrap();
 
     assert_eq!(tokens.len(), 3);
     assert!(matches!(tokens[0].0.kind, TokenKind::Loop));
     assert_eq!(tokens[0].0.text, "loop");
-    assert!(matches!(tokens[1].0.kind, TokenKind::Match));
-    assert_eq!(tokens[1].0.text, "match");
+    assert!(matches!(tokens[1].0.kind, TokenKind::When));
+    assert_eq!(tokens[1].0.text, "when");
     assert!(matches!(tokens[2].0.kind, TokenKind::In));
     assert_eq!(tokens[2].0.text, "in");
 }
@@ -260,7 +260,7 @@ fn test_for_loop() {
 #[test]
 fn test_match_expression() {
     let source = r#"
-        match x {
+        when x {
             1 -> "one"
             2 -> "two"
             _ -> "other"
@@ -269,7 +269,7 @@ fn test_match_expression() {
 
     let tokens = tokenize(source).unwrap();
 
-    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::Match)));
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::When)));
     assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::Arrow)));
     assert!(
         tokens
