@@ -3,7 +3,7 @@
 use crate::lowering::core::AstLowering;
 use crate::{RirBlock, RirFunction, RirModule, RirParameter};
 use rive_core::Result;
-use rive_parser::ast::{Function as AstFunction, Item, Program};
+use rive_parser::ast::{Function as AstFunction, FunctionBody, Item, Program};
 
 impl AstLowering {
     /// Lowers a complete program to RIR.
@@ -63,7 +63,18 @@ impl AstLowering {
             .collect::<Result<Vec<_>>>()?;
 
         let return_type = func.return_type;
-        let body = self.lower_block(&func.body)?;
+
+        // Lower function body based on its type
+        let body = match &func.body {
+            FunctionBody::Block(block) => self.lower_block(block)?,
+            FunctionBody::Expression(expr) => {
+                // For expression bodies, create a block with just the expression as final_expr
+                let mut rir_block = RirBlock::new(expr.span());
+                let final_expr = self.lower_expression(expr)?;
+                rir_block.final_expr = Some(Box::new(final_expr));
+                rir_block
+            }
+        };
 
         // Exit function scope
         self.exit_scope();

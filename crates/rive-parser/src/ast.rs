@@ -21,8 +21,17 @@ pub struct Function {
     pub name: String,
     pub params: Vec<Parameter>,
     pub return_type: TypeId,
-    pub body: Block,
+    pub body: FunctionBody,
     pub span: Span,
+}
+
+/// Function body: either a block or a single expression.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionBody {
+    /// Block body: `{ statements... }`
+    Block(Block),
+    /// Expression body: `= expr`
+    Expression(Expression),
 }
 
 /// Function parameter.
@@ -49,6 +58,16 @@ pub enum Statement {
         mutable: bool,
         var_type: Option<TypeId>,
         /// Whether to infer as nullable when no explicit type (e.g., `let result? = ...`)
+        infer_nullable: bool,
+        initializer: Expression,
+        span: Span,
+    },
+
+    /// Constant declaration: `const name[?] [: type[?]] = expr`
+    Const {
+        name: String,
+        var_type: Option<TypeId>,
+        /// Whether to infer as nullable when no explicit type
         infer_nullable: bool,
         initializer: Expression,
         span: Span,
