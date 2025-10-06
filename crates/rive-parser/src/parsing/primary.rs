@@ -63,13 +63,8 @@ impl<'a> Parser<'a> {
                     })
                 }
             }
-            // Parenthesized expression
-            TokenKind::LeftParen => {
-                self.advance();
-                let expr = self.parse_expression()?;
-                self.expect(&TokenKind::RightParen)?;
-                Ok(expr)
-            }
+            // Parenthesized expression or tuple literal
+            TokenKind::LeftParen => self.parse_paren_or_tuple(),
             // Array literal
             TokenKind::LeftBracket => {
                 self.advance();
@@ -86,11 +81,8 @@ impl<'a> Parser<'a> {
             TokenKind::For => Ok(Expression::For(Box::new(self.parse_for(None)?))),
             TokenKind::Loop => Ok(Expression::Loop(Box::new(self.parse_loop(None)?))),
             TokenKind::When => Ok(Expression::Match(Box::new(self.parse_match()?))),
-            // Block expression: `{ statements... }`
-            TokenKind::LeftBrace => {
-                let block = self.parse_block()?;
-                Ok(Expression::Block(Box::new(block)))
-            }
+            // Dict literal or block expression
+            TokenKind::LeftBrace => self.parse_brace_expression(),
             _ => {
                 let span = self.current_span();
                 Err(Error::Parser(
@@ -151,5 +143,138 @@ impl<'a> Parser<'a> {
         }
 
         Ok(elements)
+    }
+
+    /// Parses parenthesized expression or tuple literal.
+    ///
+    /// Disambiguates:
+    /// - `(expr)` - grouped expression
+    /// - `(expr,)` - single-element tuple
+    /// - `(a, b, c)` - multi-element tuple
+    /// - `()` - empty tuple (unit)
+    fn parse_paren_or_tuple(&mut self) -> Result<Expression> {
+        let start_span = self.current_span();
+        self.advance(); // consume `(`
+
+        // Empty tuple `()`
+        if self.check(&TokenKind::RightParen) {
+            let end_span = self.expect(&TokenKind::RightParen)?;
+            return Ok(Expression::Tuple {
+                elements: Vec::new(),
+                span: start_span.merge(end_span),
+            });
+        }
+
+        // Parse first expression
+        let first = self.parse_expression()?;
+
+        // Check for comma
+        if self.match_token(&TokenKind::Comma) {
+            // It's a tuple
+            let mut elements = vec![first];
+
+            // Parse remaining elements
+            if !self.check(&TokenKind::RightParen) {
+                loop {
+                    elements.push(self.parse_expression()?);
+                    if !self.match_token(&TokenKind::Comma) {
+                        break;
+                    }
+                    // Allow trailing comma
+                    if self.check(&TokenKind::RightParen) {
+                        break;
+                    }
+                }
+            }
+
+            let end_span = self.expect(&TokenKind::RightParen)?;
+            Ok(Expression::Tuple {
+                elements,
+                span: start_span.merge(end_span),
+            })
+        } else {
+            // Just a grouped expression
+            self.expect(&TokenKind::RightParen)?;
+            Ok(first)
+        }
+    }
+
+    /// Parses dict literal or block expression based on lookahead.
+    ///
+    /// Context-sensitive parsing:
+    /// - `{}` - empty dict in expression context
+    /// - `{"key": value, ...}` - dict literal
+    /// - `{ statements... }` - block expression (fallback)
+    fn parse_brace_expression(&mut self) -> Result<Expression> {
+        let start_span = self.current_span();
+        self.advance(); // consume `{`
+
+        // Empty braces `{}` - treat as empty dict in expression context
+        if self.check(&TokenKind::RightBrace) {
+            let end_span = self.expect(&TokenKind::RightBrace)?;
+            return Ok(Expression::Dict {
+                entries: Vec::new(),
+                span: start_span.merge(end_span),
+            });
+        }
+
+        // Lookahead to distinguish dict from block
+        // Dict: first token is String followed by Colon
+        if self.check(&TokenKind::String) && self.check_ahead(1, &TokenKind::Colon) {
+            // Parse as dict literal
+            let mut entries = Vec::new();
+
+            loop {
+                // Parse key (must be string literal)
+                let key_token = self.peek();
+                let key_span = self.current_span();
+                if key_token.0.kind != TokenKind::String {
+                    return Err(Error::Parser(
+                        "Dictionary keys must be string literals".to_string(),
+                        key_span,
+                    ));
+                }
+                let key = key_token.0.text[1..key_token.0.text.len() - 1].to_string();
+                self.advance();
+
+                // Expect colon
+                self.expect(&TokenKind::Colon)?;
+
+                // Parse value
+                let value = self.parse_expression()?;
+                entries.push((key, value));
+
+                // Check for comma
+                if !self.match_token(&TokenKind::Comma) {
+                    break;
+                }
+
+                // Allow trailing comma
+                if self.check(&TokenKind::RightBrace) {
+                    break;
+                }
+            }
+
+            let end_span = self.expect(&TokenKind::RightBrace)?;
+            Ok(Expression::Dict {
+                entries,
+                span: start_span.merge(end_span),
+            })
+        } else {
+            // Parse as block expression
+            // Rewind by creating a new parser state would be complex,
+            // so we'll parse statements until we hit `}`
+            let mut statements = Vec::new();
+
+            while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+                statements.push(self.parse_statement()?);
+            }
+
+            let end_span = self.expect(&TokenKind::RightBrace)?;
+            Ok(Expression::Block(Box::new(crate::ast::Block {
+                statements,
+                span: start_span.merge(end_span),
+            })))
+        }
     }
 }

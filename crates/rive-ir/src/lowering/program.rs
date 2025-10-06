@@ -8,8 +8,6 @@ use rive_parser::ast::{Function as AstFunction, Item, Program};
 impl AstLowering {
     /// Lowers a complete program to RIR.
     pub fn lower_program(&mut self, program: &Program) -> Result<RirModule> {
-        let mut module = RirModule::new(self.type_registry.clone());
-
         // First pass: register all function signatures
         for item in &program.items {
             match item {
@@ -22,13 +20,20 @@ impl AstLowering {
         }
 
         // Second pass: lower function bodies
+        let mut functions = Vec::new();
         for item in &program.items {
             match item {
                 Item::Function(func) => {
                     let rir_func = self.lower_function(func)?;
-                    module.add_function(rir_func);
+                    functions.push(rir_func);
                 }
             }
+        }
+
+        // Create module with the updated type registry (after all types have been created)
+        let mut module = RirModule::new(self.type_registry.clone());
+        for func in functions {
+            module.add_function(func);
         }
 
         Ok(module)

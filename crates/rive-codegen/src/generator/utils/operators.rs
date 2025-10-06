@@ -1,4 +1,4 @@
-//! Utility functions for code generation.
+//! Operator utility functions (precedence, associativity, token conversion).
 
 use proc_macro2::TokenStream;
 use quote::quote;

@@ -164,6 +164,39 @@ pub enum Expression {
         call: Box<Expression>,
         span: Span,
     },
+
+    /// Tuple literal: `(a, b, c)` or `(a,)` for single element
+    Tuple {
+        elements: Vec<Expression>,
+        span: Span,
+    },
+
+    /// List constructor: `List(1, 2, 3)`
+    List {
+        elements: Vec<Expression>,
+        span: Span,
+    },
+
+    /// Dictionary literal: `{"key": value, ...}`
+    Dict {
+        entries: Vec<(String, Expression)>,
+        span: Span,
+    },
+
+    /// Method call: `object.method(args...)`
+    MethodCall {
+        object: Box<Expression>,
+        method: String,
+        arguments: Vec<Expression>,
+        span: Span,
+    },
+
+    /// Field access: `object.field` (for tuple indexing like `t.0`)
+    FieldAccess {
+        object: Box<Expression>,
+        field: String,
+        span: Span,
+    },
 }
 
 impl Expression {
@@ -190,6 +223,11 @@ impl Expression {
             Self::Block(block) => block.span,
             Self::Elvis { span, .. } => *span,
             Self::SafeCall { span, .. } => *span,
+            Self::Tuple { span, .. } => *span,
+            Self::List { span, .. } => *span,
+            Self::Dict { span, .. } => *span,
+            Self::MethodCall { span, .. } => *span,
+            Self::FieldAccess { span, .. } => *span,
         }
     }
 }

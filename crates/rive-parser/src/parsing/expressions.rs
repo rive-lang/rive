@@ -215,32 +215,90 @@ impl<'a> Parser<'a> {
         self.parse_call()
     }
 
-    /// Parses function call, safe call, or primary expression.
+    /// Parses function call, method call, field access, safe call, or primary expression.
     ///
-    /// Handles both regular calls `func()` and safe calls `obj?.func()`.
+    /// Handles:
+    /// - Regular calls: `func()`
+    /// - Method calls: `obj.method()`
+    /// - Field access: `obj.field` or `tuple.0`
+    /// - Safe calls: `obj?.method()`
+    /// - List constructor: `List(args...)`
     fn parse_call(&mut self) -> Result<Expression> {
         let mut expr = self.parse_primary()?;
 
         loop {
             if self.check(&TokenKind::LeftParen) {
-                // Regular function call
+                // Regular function call or List constructor
                 self.advance();
                 let arguments = self.parse_argument_list()?;
                 let end_span = self.expect(&TokenKind::RightParen)?;
 
                 if let Expression::Variable { name, .. } = &expr {
                     let span = expr.span().merge(end_span);
-                    expr = Expression::Call {
-                        callee: name.clone(),
-                        arguments,
-                        span,
-                    };
+
+                    // Special handling for List constructor
+                    if name == "List" {
+                        expr = Expression::List {
+                            elements: arguments,
+                            span,
+                        };
+                    } else {
+                        expr = Expression::Call {
+                            callee: name.clone(),
+                            arguments,
+                            span,
+                        };
+                    }
                 } else {
                     let span = expr.span();
                     return Err(Error::Parser(
                         "Only identifiers can be called".to_string(),
                         span,
                     ));
+                }
+            } else if self.check(&TokenKind::Dot) {
+                // Method call or field access: `obj.method()` or `obj.field`
+                self.advance(); // consume `.`
+
+                let member_token = self.peek();
+                let member_span = self.current_span();
+
+                if member_token.0.kind != TokenKind::Identifier
+                    && member_token.0.kind != TokenKind::Integer
+                {
+                    return Err(Error::Parser(
+                        format!(
+                            "Expected identifier or integer after '.', found '{}'",
+                            member_token.0.text
+                        ),
+                        member_span,
+                    ));
+                }
+
+                let member_name = member_token.0.text.clone();
+                self.advance();
+
+                // Check if it's a method call (followed by `(`)
+                if self.check(&TokenKind::LeftParen) {
+                    self.advance();
+                    let arguments = self.parse_argument_list()?;
+                    let end_span = self.expect(&TokenKind::RightParen)?;
+                    let span = expr.span().merge(end_span);
+
+                    expr = Expression::MethodCall {
+                        object: Box::new(expr),
+                        method: member_name,
+                        arguments,
+                        span,
+                    };
+                } else {
+                    // Field access
+                    let span = expr.span().merge(member_span);
+                    expr = Expression::FieldAccess {
+                        object: Box::new(expr),
+                        field: member_name,
+                        span,
+                    };
                 }
             } else if self.peek().0.kind == TokenKind::Question
                 && self.check_ahead(1, &TokenKind::Dot)
@@ -259,7 +317,7 @@ impl<'a> Parser<'a> {
                     span,
                 };
             } else {
-                // No more calls/safe calls
+                // No more calls/safe calls/field access
                 break;
             }
         }

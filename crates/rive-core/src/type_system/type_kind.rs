@@ -27,6 +27,15 @@ pub enum TypeKind {
     /// Array type with element type and size
     Array { element: TypeId, size: usize },
 
+    /// Tuple type with element types
+    Tuple { elements: Vec<TypeId> },
+
+    /// List type (dynamic array)
+    List { element: TypeId },
+
+    /// Map/dictionary type
+    Map { key: TypeId, value: TypeId },
+
     /// Optional/nullable type
     Optional { inner: TypeId },
 
@@ -65,7 +74,12 @@ impl TypeKind {
     pub const fn is_composite(&self) -> bool {
         matches!(
             self,
-            Self::Array { .. } | Self::Optional { .. } | Self::Function { .. }
+            Self::Array { .. }
+                | Self::Tuple { .. }
+                | Self::List { .. }
+                | Self::Map { .. }
+                | Self::Optional { .. }
+                | Self::Function { .. }
         )
     }
 
@@ -84,6 +98,9 @@ impl TypeKind {
             Self::Unit => "Unit".to_string(),
             Self::Null => "Null".to_string(),
             Self::Array { .. } => "Array".to_string(),
+            Self::Tuple { .. } => "Tuple".to_string(),
+            Self::List { .. } => "List".to_string(),
+            Self::Map { .. } => "Map".to_string(),
             Self::Optional { .. } => "Optional".to_string(),
             Self::Function { .. } => "Function".to_string(),
             Self::Struct { name, .. } => name.clone(),

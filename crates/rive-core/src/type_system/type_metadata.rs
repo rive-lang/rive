@@ -116,6 +116,33 @@ impl TypeMetadata {
                 let elem_type = registry.rust_type(*element);
                 format!("[{elem_type}; {size}]")
             }
+            TypeKind::Tuple { elements } => {
+                let elem_types = elements
+                    .iter()
+                    .map(|e| registry.rust_type(*e))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("({elem_types})")
+            }
+            TypeKind::List { element } => {
+                let elem_type = registry.rust_type(*element);
+                if self.uses_rc() {
+                    format!("std::rc::Rc<std::cell::RefCell<Vec<{elem_type}>>>")
+                } else {
+                    format!("Vec<{elem_type}>")
+                }
+            }
+            TypeKind::Map { key, value } => {
+                let key_type = registry.rust_type(*key);
+                let value_type = registry.rust_type(*value);
+                if self.uses_rc() {
+                    format!(
+                        "std::rc::Rc<std::cell::RefCell<std::collections::HashMap<{key_type}, {value_type}>>>"
+                    )
+                } else {
+                    format!("std::collections::HashMap<{key_type}, {value_type}>")
+                }
+            }
             TypeKind::Optional { inner } => {
                 let inner_type = registry.rust_type(*inner);
                 format!("Option<{inner_type}>")

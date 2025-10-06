@@ -17,6 +17,8 @@ struct LoopContext {
 pub struct CodeGenerator {
     /// Stack of loop contexts for rewriting break statements
     loop_stack: Vec<LoopContext>,
+    /// Type registry for type lookups during codegen
+    pub(crate) type_registry: rive_core::type_system::TypeRegistry,
 }
 
 impl CodeGenerator {
@@ -24,6 +26,7 @@ impl CodeGenerator {
     pub fn new() -> Self {
         Self {
             loop_stack: Vec::new(),
+            type_registry: rive_core::type_system::TypeRegistry::new(),
         }
     }
 
@@ -84,6 +87,9 @@ impl CodeGenerator {
 
     /// Generates Rust code from a RIR module.
     pub fn generate(&mut self, module: &RirModule) -> Result<String> {
+        // Copy the type registry from the module
+        self.type_registry = module.type_registry.clone();
+
         let items: Result<Vec<_>> = module
             .functions
             .iter()

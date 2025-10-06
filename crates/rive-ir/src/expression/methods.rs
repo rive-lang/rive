@@ -29,7 +29,12 @@ impl RirExpression {
             | Self::NullLiteral { span, .. }
             | Self::Elvis { span, .. }
             | Self::SafeCall { span, .. }
-            | Self::WrapOptional { span, .. } => *span,
+            | Self::WrapOptional { span, .. }
+            | Self::TupleLiteral { span, .. }
+            | Self::ListLiteral { span, .. }
+            | Self::DictLiteral { span, .. }
+            | Self::MethodCall { span, .. }
+            | Self::FieldAccess { span, .. } => *span,
         }
     }
 
@@ -95,8 +100,25 @@ impl RirExpression {
             | Self::WrapOptional {
                 result_type: type_id,
                 ..
+            }
+            | Self::TupleLiteral {
+                result_type: type_id,
+                ..
+            }
+            | Self::ListLiteral {
+                result_type: type_id,
+                ..
+            }
+            | Self::DictLiteral {
+                result_type: type_id,
+                ..
+            }
+            | Self::FieldAccess {
+                result_type: type_id,
+                ..
             } => *type_id,
             Self::ArrayLiteral { element_type, .. } => *element_type,
+            Self::MethodCall { return_type, .. } => *return_type,
         }
     }
 

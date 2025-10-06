@@ -156,6 +156,44 @@ pub enum RirExpression {
         result_type: TypeId,
         span: Span,
     },
+
+    /// Tuple literal
+    TupleLiteral {
+        elements: Vec<RirExpression>,
+        result_type: TypeId,
+        span: Span,
+    },
+
+    /// List constructor
+    ListLiteral {
+        elements: Vec<RirExpression>,
+        result_type: TypeId,
+        span: Span,
+    },
+
+    /// Dictionary literal
+    DictLiteral {
+        entries: Vec<(String, RirExpression)>,
+        result_type: TypeId,
+        span: Span,
+    },
+
+    /// Method call
+    MethodCall {
+        object: Box<RirExpression>,
+        method: String,
+        arguments: Vec<RirExpression>,
+        return_type: TypeId,
+        span: Span,
+    },
+
+    /// Field access (for tuple indexing)
+    FieldAccess {
+        object: Box<RirExpression>,
+        field: String,
+        result_type: TypeId,
+        span: Span,
+    },
 }
 
 impl RirExpression {

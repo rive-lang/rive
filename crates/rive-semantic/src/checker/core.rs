@@ -39,6 +39,14 @@ impl TypeChecker {
         }
     }
 
+    /// Consumes the type checker and returns the type registry.
+    ///
+    /// This is useful for extracting the type registry after semantic analysis
+    /// so it can be passed to subsequent compilation stages.
+    pub fn into_type_registry(self) -> rive_core::type_system::TypeRegistry {
+        self.symbols.into_type_registry()
+    }
+
     /// Checks if a type is nullable and returns the inner type if so.
     ///
     /// # Returns

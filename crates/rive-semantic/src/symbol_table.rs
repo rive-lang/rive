@@ -67,6 +67,11 @@ impl SymbolTable {
         &mut self.type_registry
     }
 
+    /// Consumes the symbol table and returns the type registry.
+    pub fn into_type_registry(self) -> TypeRegistry {
+        self.type_registry
+    }
+
     /// Enters a new scope.
     pub fn enter_scope(&mut self) {
         self.scopes.push(HashMap::new());
