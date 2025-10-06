@@ -1,8 +1,8 @@
 //! Tests for the Rive parser.
 
 use rive_lexer::tokenize;
-use rive_parser::{BinaryOperator, Expression, Item, Statement, parse};
 use rive_parser::ast::FunctionBody;
+use rive_parser::{BinaryOperator, Expression, Item, Statement, parse};
 
 /// Helper function to get statements from a function body
 fn get_statements(body: &FunctionBody) -> &[Statement] {
