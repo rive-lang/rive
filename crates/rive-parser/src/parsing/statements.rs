@@ -10,6 +10,7 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_statement(&mut self) -> Result<Statement> {
         match self.peek().0.kind {
             TokenKind::Let => self.parse_let_statement(),
+            TokenKind::Const => self.parse_const_statement(),
             TokenKind::Return => self.parse_return_statement(),
             TokenKind::Break => {
                 let break_stmt = self.parse_break()?;
@@ -60,6 +61,48 @@ impl<'a> Parser<'a> {
         Ok(Statement::Let {
             name,
             mutable,
+            var_type,
+            infer_nullable,
+            initializer,
+            span: start_span.merge(end_span),
+        })
+    }
+
+    /// Parses a const statement.
+    /// Supports both `const x? = expr` (infer nullable) and `const x: Type? = expr` (explicit nullable)
+    fn parse_const_statement(&mut self) -> Result<Statement> {
+        let start_span = self.expect(&TokenKind::Const)?;
+
+        let name = self.expect_identifier()?;
+
+        // Check for `?` after variable name (e.g., `const result? = ...`)
+        let infer_nullable = self.match_token(&TokenKind::Question);
+
+        let var_type = if self.check(&TokenKind::Colon) {
+            self.advance();
+
+            // If we have both `name?` and `: Type`, that's an error
+            if infer_nullable {
+                return Err(rive_core::Error::Parser(
+                    format!(
+                        "Cannot use '{}?' with explicit type annotation. Use ': Type?' for explicit nullable type",
+                        name
+                    ),
+                    start_span,
+                ));
+            }
+
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        self.expect(&TokenKind::Equal)?;
+        let initializer = self.parse_expression()?;
+        let end_span = initializer.span();
+
+        Ok(Statement::Const {
+            name,
             var_type,
             infer_nullable,
             initializer,

@@ -1,7 +1,16 @@
 //! Tests for the Rive parser.
 
 use rive_lexer::tokenize;
+use rive_parser::ast::FunctionBody;
 use rive_parser::{BinaryOperator, Expression, Item, Statement, parse};
+
+/// Helper function to get statements from a function body
+fn get_statements(body: &FunctionBody) -> &[Statement] {
+    match body {
+        FunctionBody::Block(block) => &block.statements,
+        FunctionBody::Expression(_) => &[], // Expression bodies have no statements
+    }
+}
 
 #[test]
 fn test_parse_simple_function() {
@@ -14,7 +23,7 @@ fn test_parse_simple_function() {
     let Item::Function(func) = &program.items[0];
     assert_eq!(func.name, "main");
     assert_eq!(func.params.len(), 0);
-    assert_eq!(func.body.statements.len(), 0);
+    assert_eq!(get_statements(&func.body).len(), 0);
 }
 
 #[test]
@@ -39,9 +48,9 @@ fn test_parse_let_statement() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    assert_eq!(func.body.statements.len(), 1);
+    assert_eq!(get_statements(&func.body).len(), 1);
 
-    if let Statement::Let { name, mutable, .. } = &func.body.statements[0] {
+    if let Statement::Let { name, mutable, .. } = &get_statements(&func.body)[0] {
         assert_eq!(name, "x");
         assert!(!mutable);
     } else {
@@ -56,7 +65,7 @@ fn test_parse_mutable_variable() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    if let Statement::Let { name, mutable, .. } = &func.body.statements[0] {
+    if let Statement::Let { name, mutable, .. } = &get_statements(&func.body)[0] {
         assert_eq!(name, "count");
         assert!(mutable);
     } else {
@@ -71,9 +80,9 @@ fn test_parse_binary_expression() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    if let Statement::Let { initializer, .. } = &func.body.statements[0] {
+    if let Statement::Let { initializer, .. } = &get_statements(&func.body)[0] {
         if let Expression::Binary { operator, .. } = initializer {
-            assert_eq!(*operator, BinaryOperator::Add);
+            assert_eq!(operator, &BinaryOperator::Add);
         } else {
             panic!("Expected binary expression");
         }
@@ -87,7 +96,7 @@ fn test_parse_function_call() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    if let Statement::Expression { expression, .. } = &func.body.statements[0] {
+    if let Statement::Expression { expression, .. } = &get_statements(&func.body)[0] {
         if let Expression::Call {
             callee, arguments, ..
         } = expression
@@ -107,10 +116,10 @@ fn test_parse_return_statement() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    if let Statement::Return { value, .. } = &func.body.statements[0] {
+    if let Statement::Return { value, .. } = &get_statements(&func.body)[0] {
         assert!(value.is_some());
         if let Some(Expression::Integer { value, .. }) = value {
-            assert_eq!(*value, 42);
+            assert_eq!(value, &42);
         }
     } else {
         panic!("Expected return statement");
@@ -124,7 +133,7 @@ fn test_parse_array_literal() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    if let Statement::Let { initializer, .. } = &func.body.statements[0] {
+    if let Statement::Let { initializer, .. } = &get_statements(&func.body)[0] {
         if let Expression::Array { elements, .. } = initializer {
             assert_eq!(elements.len(), 3);
         } else {
@@ -147,7 +156,7 @@ fn test_parse_comparison_operators() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    assert_eq!(func.body.statements.len(), 6);
+    assert_eq!(get_statements(&func.body).len(), 6);
 }
 
 #[test]
@@ -159,7 +168,7 @@ fn test_parse_logical_operators() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    assert_eq!(func.body.statements.len(), 1);
+    assert_eq!(get_statements(&func.body).len(), 1);
 }
 
 #[test]
@@ -172,7 +181,7 @@ fn test_parse_unary_operators() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    assert_eq!(func.body.statements.len(), 2);
+    assert_eq!(get_statements(&func.body).len(), 2);
 }
 
 #[test]
@@ -184,7 +193,7 @@ fn test_parse_complex_expression() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    assert_eq!(func.body.statements.len(), 1);
+    assert_eq!(get_statements(&func.body).len(), 1);
 }
 
 #[test]
@@ -201,7 +210,7 @@ fn test_parse_hello_world() {
 
     let Item::Function(func) = &program.items[0];
     assert_eq!(func.name, "main");
-    assert_eq!(func.body.statements.len(), 1);
+    assert_eq!(get_statements(&func.body).len(), 1);
 }
 
 #[test]
@@ -257,7 +266,7 @@ fn test_parse_multiple_nullable_types() {
     }
 
     // Variables should be nullable
-    assert_eq!(func.body.statements.len(), 2);
+    assert_eq!(get_statements(&func.body).len(), 2);
 }
 
 #[test]
@@ -306,10 +315,10 @@ fn test_parse_elvis_operator() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    assert_eq!(func.body.statements.len(), 2);
+    assert_eq!(get_statements(&func.body).len(), 2);
 
     // Check the Elvis operator expression
-    if let Statement::Let { initializer, .. } = &func.body.statements[1] {
+    if let Statement::Let { initializer, .. } = &get_statements(&func.body)[1] {
         assert!(matches!(initializer, Expression::Elvis { .. }));
     } else {
         panic!("Expected let statement with Elvis operator");
@@ -328,7 +337,7 @@ fn test_parse_chained_elvis() {
 
     let Item::Function(func) = &program.items[0];
     // Should parse successfully with nested Elvis
-    assert_eq!(func.body.statements.len(), 3);
+    assert_eq!(get_statements(&func.body).len(), 3);
 }
 
 #[test]
@@ -341,10 +350,10 @@ fn test_parse_safe_call() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    assert_eq!(func.body.statements.len(), 2);
+    assert_eq!(get_statements(&func.body).len(), 2);
 
     // Check the SafeCall expression
-    if let Statement::Let { initializer, .. } = &func.body.statements[1] {
+    if let Statement::Let { initializer, .. } = &get_statements(&func.body)[1] {
         assert!(matches!(initializer, Expression::SafeCall { .. }));
     } else {
         panic!("Expected let statement with SafeCall operator");
@@ -361,7 +370,7 @@ fn test_parse_chained_safe_call() {
 
     let Item::Function(func) = &program.items[0];
     // Should parse successfully with chained safe calls
-    assert_eq!(func.body.statements.len(), 1);
+    assert_eq!(get_statements(&func.body).len(), 1);
 }
 
 #[test]
@@ -373,12 +382,12 @@ fn test_parse_elvis_with_safe_call() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    assert_eq!(func.body.statements.len(), 1);
+    assert_eq!(get_statements(&func.body).len(), 1);
 
     // Should have Elvis with SafeCall inside
-    if let Statement::Let { initializer, .. } = &func.body.statements[0] {
+    if let Statement::Let { initializer, .. } = &get_statements(&func.body)[0] {
         if let Expression::Elvis { value, .. } = initializer {
-            assert!(matches!(**value, Expression::SafeCall { .. }));
+            assert!(matches!(&**value, Expression::SafeCall { .. }));
         } else {
             panic!("Expected Elvis operator");
         }
@@ -399,10 +408,10 @@ fn test_parse_block_expression() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    assert_eq!(func.body.statements.len(), 1);
+    assert_eq!(get_statements(&func.body).len(), 1);
 
     // Check block expression
-    if let Statement::Let { initializer, .. } = &func.body.statements[0] {
+    if let Statement::Let { initializer, .. } = &get_statements(&func.body)[0] {
         assert!(matches!(initializer, Expression::Block(_)));
     } else {
         panic!("Expected let statement with block expression");
@@ -422,12 +431,12 @@ fn test_parse_elvis_with_block() {
     let (program, _type_registry) = parse(&tokens).unwrap();
 
     let Item::Function(func) = &program.items[0];
-    assert_eq!(func.body.statements.len(), 2);
+    assert_eq!(get_statements(&func.body).len(), 2);
 
     // Elvis with block fallback
-    if let Statement::Let { initializer, .. } = &func.body.statements[1] {
+    if let Statement::Let { initializer, .. } = &get_statements(&func.body)[1] {
         if let Expression::Elvis { fallback, .. } = initializer {
-            assert!(matches!(**fallback, Expression::Block(_)));
+            assert!(matches!(&**fallback, Expression::Block(_)));
         } else {
             panic!("Expected Elvis operator");
         }

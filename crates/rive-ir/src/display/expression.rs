@@ -60,6 +60,52 @@ impl fmt::Display for RirExpression {
             } => write!(f, "({value} ?: {fallback})"),
             Self::SafeCall { object, call, .. } => write!(f, "({object}?.{call})"),
             Self::WrapOptional { value, .. } => write!(f, "Some({value})"),
+            Self::TupleLiteral { elements, .. } => {
+                write!(f, "(")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{elem}")?;
+                }
+                write!(f, ")")
+            }
+            Self::ListLiteral { elements, .. } => {
+                write!(f, "List(")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{elem}")?;
+                }
+                write!(f, ")")
+            }
+            Self::DictLiteral { entries, .. } => {
+                write!(f, "{{")?;
+                for (i, (key, value)) in entries.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "\"{key}\": {value}")?;
+                }
+                write!(f, "}}")
+            }
+            Self::MethodCall {
+                object,
+                method,
+                arguments,
+                ..
+            } => {
+                write!(f, "{object}.{method}(")?;
+                for (i, arg) in arguments.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ")")
+            }
+            Self::FieldAccess { object, field, .. } => write!(f, "{object}.{field}"),
         }
     }
 }

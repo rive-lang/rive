@@ -4,7 +4,7 @@ use crate::checker::core::TypeChecker;
 use crate::symbol_table::Symbol;
 use rive_core::type_system::TypeId;
 use rive_core::{Error, Result};
-use rive_parser::ast::{Function, Item, Program};
+use rive_parser::ast::{Function, FunctionBody, Item, Program};
 
 impl TypeChecker {
     /// Checks a complete program.
@@ -55,8 +55,24 @@ impl TypeChecker {
             self.symbols.define(symbol)?;
         }
 
-        // Check function body
-        self.check_block(&func.body)?;
+        // Check function body based on its type
+        match &func.body {
+            FunctionBody::Block(block) => {
+                self.check_block(block)?;
+            }
+            FunctionBody::Expression(expr) => {
+                // For expression bodies, check that the expression type matches the return type
+                let expr_type = self.check_expression(expr)?;
+                if !self.types_compatible(func.return_type, expr_type) {
+                    return Err(self.type_mismatch_error(
+                        &format!("Function '{}' expression body type mismatch", func.name),
+                        func.return_type,
+                        expr_type,
+                        func.span,
+                    ));
+                }
+            }
+        }
 
         // Exit function scope
         self.symbols.exit_scope();

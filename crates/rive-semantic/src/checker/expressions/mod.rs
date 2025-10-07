@@ -83,6 +83,25 @@ impl TypeChecker {
             Expression::SafeCall { object, call, span } => {
                 self.check_safe_call(object, call, *span)
             }
+
+            // New collection literals
+            Expression::Tuple { elements, span } => self.check_tuple(elements, *span),
+            Expression::List { elements, span } => self.check_list(elements, *span),
+            Expression::Dict { entries, span } => self.check_dict(entries, *span),
+
+            // Method calls and field access
+            Expression::MethodCall {
+                object,
+                method,
+                arguments,
+                span,
+            } => self.check_method_call(object, method, arguments, *span),
+
+            Expression::FieldAccess {
+                object,
+                field,
+                span,
+            } => self.check_field_access(object, field, *span),
         }
     }
 

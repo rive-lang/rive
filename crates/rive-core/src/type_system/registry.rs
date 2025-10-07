@@ -1,6 +1,14 @@
 use super::{MemoryStrategy, TypeId, TypeKind, TypeMetadata};
 use std::collections::HashMap;
 
+/// Signature of a builtin method
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodSignature {
+    pub name: String,
+    pub parameters: Vec<TypeId>,
+    pub return_type: TypeId,
+}
+
 /// Central registry for all types in the Rive type system
 ///
 /// The registry provides:
@@ -8,11 +16,14 @@ use std::collections::HashMap;
 /// - Type creation and validation
 /// - Type compatibility checking
 /// - Rust code generation helpers
+/// - Builtin method registration and lookup
 #[derive(Debug, Clone)]
 pub struct TypeRegistry {
     types: HashMap<TypeId, TypeMetadata>,
     next_id: u64,
     name_to_id: HashMap<String, TypeId>,
+    /// Maps (type_id, method_name) to method signature
+    methods: HashMap<(TypeId, String), MethodSignature>,
 }
 
 impl TypeRegistry {
@@ -22,6 +33,7 @@ impl TypeRegistry {
             types: HashMap::new(),
             next_id: TypeId::USER_DEFINED_START,
             name_to_id: HashMap::new(),
+            methods: HashMap::new(),
         };
 
         // Register built-in primitive types
@@ -31,6 +43,9 @@ impl TypeRegistry {
         registry.register_builtin(TypeId::BOOL, TypeKind::Bool, "Bool");
         registry.register_builtin(TypeId::UNIT, TypeKind::Unit, "Unit");
         registry.register_builtin(TypeId::NULL, TypeKind::Null, "Null");
+
+        // Register builtin methods
+        registry.register_builtin_methods();
 
         registry
     }
@@ -221,6 +236,239 @@ impl TypeRegistry {
         } else {
             format!("Unknown({})", id.as_u64())
         }
+    }
+
+    /// Registers a builtin method for a type
+    pub fn register_method(
+        &mut self,
+        type_id: TypeId,
+        name: &str,
+        parameters: Vec<TypeId>,
+        return_type: TypeId,
+    ) {
+        let signature = MethodSignature {
+            name: name.to_string(),
+            parameters,
+            return_type,
+        };
+        self.methods.insert((type_id, name.to_string()), signature);
+    }
+
+    /// Looks up a method signature for a type
+    pub fn get_method(&self, type_id: TypeId, name: &str) -> Option<MethodSignature> {
+        // First try direct lookup for primitive types
+        if let Some(sig) = self.methods.get(&(type_id, name.to_string())) {
+            return Some(sig.clone());
+        }
+
+        // For composite types (List, Map, Tuple), check the type kind
+        if let Some(meta) = self.get(type_id) {
+            match &meta.kind {
+                TypeKind::List { element } => {
+                    // List methods - return synthetic signatures
+                    match name {
+                        "len" => {
+                            return Some(MethodSignature {
+                                name: "len".to_string(),
+                                parameters: vec![],
+                                return_type: TypeId::INT,
+                            });
+                        }
+                        "is_empty" => {
+                            return Some(MethodSignature {
+                                name: "is_empty".to_string(),
+                                parameters: vec![],
+                                return_type: TypeId::BOOL,
+                            });
+                        }
+                        "get" => {
+                            // Return element type; caller will wrap in Optional if needed
+                            return Some(MethodSignature {
+                                name: "get".to_string(),
+                                parameters: vec![TypeId::INT],
+                                return_type: *element,
+                            });
+                        }
+                        "append" => {
+                            return Some(MethodSignature {
+                                name: "append".to_string(),
+                                parameters: vec![*element],
+                                return_type: TypeId::UNIT,
+                            });
+                        }
+                        "insert" => {
+                            return Some(MethodSignature {
+                                name: "insert".to_string(),
+                                parameters: vec![TypeId::INT, *element],
+                                return_type: TypeId::UNIT,
+                            });
+                        }
+                        "remove" => {
+                            return Some(MethodSignature {
+                                name: "remove".to_string(),
+                                parameters: vec![TypeId::INT],
+                                return_type: TypeId::UNIT,
+                            });
+                        }
+                        "clear" | "reverse" | "sort" => {
+                            return Some(MethodSignature {
+                                name: name.to_string(),
+                                parameters: vec![],
+                                return_type: TypeId::UNIT,
+                            });
+                        }
+                        "contains" => {
+                            return Some(MethodSignature {
+                                name: "contains".to_string(),
+                                parameters: vec![*element],
+                                return_type: TypeId::BOOL,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                TypeKind::Map { key, value } => {
+                    // Map methods
+                    match name {
+                        "len" => {
+                            return Some(MethodSignature {
+                                name: "len".to_string(),
+                                parameters: vec![],
+                                return_type: TypeId::INT,
+                            });
+                        }
+                        "is_empty" => {
+                            return Some(MethodSignature {
+                                name: "is_empty".to_string(),
+                                parameters: vec![],
+                                return_type: TypeId::BOOL,
+                            });
+                        }
+                        "get" => {
+                            // Return value type; caller will wrap in Optional if needed
+                            return Some(MethodSignature {
+                                name: "get".to_string(),
+                                parameters: vec![*key],
+                                return_type: *value,
+                            });
+                        }
+                        "contains_key" => {
+                            return Some(MethodSignature {
+                                name: "contains_key".to_string(),
+                                parameters: vec![*key],
+                                return_type: TypeId::BOOL,
+                            });
+                        }
+                        "insert" => {
+                            return Some(MethodSignature {
+                                name: "insert".to_string(),
+                                parameters: vec![*key, *value],
+                                return_type: TypeId::UNIT,
+                            });
+                        }
+                        "remove" => {
+                            return Some(MethodSignature {
+                                name: "remove".to_string(),
+                                parameters: vec![*key],
+                                return_type: TypeId::UNIT,
+                            });
+                        }
+                        "keys" | "values" => {
+                            // Return key/value type; caller will wrap in List if needed
+                            let elem_type = if name == "keys" { *key } else { *value };
+                            return Some(MethodSignature {
+                                name: name.to_string(),
+                                parameters: vec![],
+                                return_type: elem_type,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                TypeKind::Tuple { .. } => {
+                    // Tuple methods
+                    if name == "len" {
+                        return Some(MethodSignature {
+                            name: "len".to_string(),
+                            parameters: vec![],
+                            return_type: TypeId::INT,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        None
+    }
+
+    /// Registers all builtin methods
+    fn register_builtin_methods(&mut self) {
+        // Int methods
+        self.register_method(TypeId::INT, "to_float", vec![], TypeId::FLOAT);
+
+        // Float methods
+        let opt_int = self.create_optional(TypeId::INT);
+        self.register_method(TypeId::FLOAT, "to_int", vec![], opt_int);
+        self.register_method(TypeId::FLOAT, "is_nan", vec![], TypeId::BOOL);
+        self.register_method(TypeId::FLOAT, "is_infinite", vec![], TypeId::BOOL);
+        self.register_method(TypeId::FLOAT, "is_finite", vec![], TypeId::BOOL);
+        self.register_method(TypeId::FLOAT, "round", vec![], TypeId::FLOAT);
+
+        // Text methods
+        self.register_method(TypeId::TEXT, "len", vec![], TypeId::INT);
+        self.register_method(TypeId::TEXT, "is_empty", vec![], TypeId::BOOL);
+        self.register_method(TypeId::TEXT, "contains", vec![TypeId::TEXT], TypeId::BOOL);
+        self.register_method(TypeId::TEXT, "to_upper", vec![], TypeId::TEXT);
+        self.register_method(TypeId::TEXT, "to_lower", vec![], TypeId::TEXT);
+        self.register_method(TypeId::TEXT, "trim", vec![], TypeId::TEXT);
+        self.register_method(
+            TypeId::TEXT,
+            "replace",
+            vec![TypeId::TEXT, TypeId::TEXT],
+            TypeId::TEXT,
+        );
+        // split returns List<Text> - we'll need to create this type dynamically
+    }
+
+    /// Creates a tuple type and returns its TypeId
+    pub fn create_tuple(&mut self, elements: Vec<TypeId>) -> TypeId {
+        let id = self.generate_id();
+        let kind = TypeKind::Tuple {
+            elements: elements.clone(),
+        };
+        // Tuples are Copy if all elements are Copy
+        let all_copy = elements
+            .iter()
+            .all(|&e| self.get(e).is_some_and(|m| m.is_copy()));
+        let memory_strategy = if all_copy {
+            MemoryStrategy::Copy
+        } else {
+            MemoryStrategy::CoW
+        };
+        let metadata = TypeMetadata::composite(id, kind, memory_strategy);
+        self.register(metadata);
+        id
+    }
+
+    /// Creates a list type and returns its TypeId
+    pub fn create_list(&mut self, element: TypeId) -> TypeId {
+        let id = self.generate_id();
+        let kind = TypeKind::List { element };
+        // Lists always use CoW (Rc<RefCell<Vec<T>>>)
+        let metadata = TypeMetadata::composite(id, kind, MemoryStrategy::CoW);
+        self.register(metadata);
+        id
+    }
+
+    /// Creates a map type and returns its TypeId
+    pub fn create_map(&mut self, key: TypeId, value: TypeId) -> TypeId {
+        let id = self.generate_id();
+        let kind = TypeKind::Map { key, value };
+        // Maps always use CoW (Rc<RefCell<HashMap<K, V>>>)
+        let metadata = TypeMetadata::composite(id, kind, MemoryStrategy::CoW);
+        self.register(metadata);
+        id
     }
 }
 

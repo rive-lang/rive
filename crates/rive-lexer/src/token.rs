@@ -19,6 +19,9 @@ pub enum TokenKind {
     #[token("let")]
     Let,
 
+    #[token("const")]
+    Const,
+
     #[token("mut")]
     Mut,
 
@@ -181,6 +184,7 @@ impl fmt::Display for TokenKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Let => write!(f, "let"),
+            Self::Const => write!(f, "const"),
             Self::Mut => write!(f, "mut"),
             Self::Fun => write!(f, "fun"),
             Self::If => write!(f, "if"),

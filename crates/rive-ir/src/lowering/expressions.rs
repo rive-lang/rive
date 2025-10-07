@@ -200,6 +200,142 @@ impl AstLowering {
                     span: *span,
                 })
             }
+
+            // New collection literals
+            AstExpression::Tuple { elements, span } => {
+                let rir_elements = elements
+                    .iter()
+                    .map(|e| self.lower_expression(e))
+                    .collect::<Result<Vec<_>>>()?;
+
+                let element_types: Vec<_> = rir_elements.iter().map(|e| e.type_id()).collect();
+                let result_type = self.type_registry.create_tuple(element_types);
+
+                Ok(RirExpression::TupleLiteral {
+                    elements: rir_elements,
+                    result_type,
+                    span: *span,
+                })
+            }
+
+            AstExpression::List { elements, span } => {
+                let rir_elements = elements
+                    .iter()
+                    .map(|e| self.lower_expression(e))
+                    .collect::<Result<Vec<_>>>()?;
+
+                let element_type = if let Some(first) = rir_elements.first() {
+                    first.type_id()
+                } else {
+                    rive_core::type_system::TypeId::UNIT
+                };
+
+                let result_type = self.type_registry.create_list(element_type);
+
+                Ok(RirExpression::ListLiteral {
+                    elements: rir_elements,
+                    result_type,
+                    span: *span,
+                })
+            }
+
+            AstExpression::Dict { entries, span } => {
+                let rir_entries = entries
+                    .iter()
+                    .map(|(key, value)| {
+                        let value_expr = self.lower_expression(value)?;
+                        Ok((key.clone(), value_expr))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+
+                let value_type = if let Some((_, first_value)) = rir_entries.first() {
+                    first_value.type_id()
+                } else {
+                    rive_core::type_system::TypeId::UNIT
+                };
+
+                let result_type = self
+                    .type_registry
+                    .create_map(rive_core::type_system::TypeId::TEXT, value_type);
+
+                Ok(RirExpression::DictLiteral {
+                    entries: rir_entries,
+                    result_type,
+                    span: *span,
+                })
+            }
+
+            // Method calls and field access
+            AstExpression::MethodCall {
+                object,
+                method,
+                arguments,
+                span,
+            } => {
+                let object_expr = self.lower_expression(object)?;
+                let args = arguments
+                    .iter()
+                    .map(|arg| self.lower_expression(arg))
+                    .collect::<Result<Vec<_>>>()?;
+
+                // Look up method signature
+                let base_return_type = self
+                    .type_registry
+                    .get_method(object_expr.type_id(), method)
+                    .map(|sig| sig.return_type)
+                    .ok_or_else(|| {
+                        Error::Semantic(format!("Method '{}' not found on type", method))
+                    })?;
+
+                // For 'get' methods on List and Map, wrap return type in Optional
+                let return_type = if method == "get" {
+                    self.type_registry.create_optional(base_return_type)
+                } else {
+                    base_return_type
+                };
+
+                Ok(RirExpression::MethodCall {
+                    object: Box::new(object_expr),
+                    method: method.clone(),
+                    arguments: args,
+                    return_type,
+                    span: *span,
+                })
+            }
+
+            AstExpression::FieldAccess {
+                object,
+                field,
+                span,
+            } => {
+                let object_expr = self.lower_expression(object)?;
+                let object_type = object_expr.type_id();
+
+                // Get tuple element type
+                let result_type = {
+                    use rive_core::type_system::TypeKind;
+                    let metadata = self.type_registry.get_type_metadata(object_type);
+                    if let TypeKind::Tuple { elements } = &metadata.kind {
+                        let index: usize = field.parse().map_err(|_| {
+                            Error::Semantic(format!("Invalid tuple index '{}'", field))
+                        })?;
+                        elements.get(index).copied().ok_or_else(|| {
+                            Error::Semantic(format!("Tuple index {} out of bounds", index))
+                        })?
+                    } else {
+                        return Err(Error::Semantic(
+                            "Field access is only supported on tuples".to_string(),
+                        ));
+                    }
+                };
+
+                Ok(RirExpression::FieldAccess {
+                    object: Box::new(object_expr),
+                    field: field.clone(),
+                    result_type,
+                    span: *span,
+                })
+            }
         }
     }
 

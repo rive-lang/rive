@@ -26,6 +26,21 @@ impl TypeChecker {
                 *span,
             ),
 
+            Statement::Const {
+                name,
+                var_type,
+                infer_nullable,
+                initializer,
+                span,
+            } => self.check_let(
+                name,
+                false, // const is always immutable
+                var_type,
+                *infer_nullable,
+                initializer,
+                *span,
+            ),
+
             Statement::Assignment { name, value, span } => {
                 self.check_assignment(name, value, *span)
             }

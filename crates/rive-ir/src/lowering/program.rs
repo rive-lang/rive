@@ -3,13 +3,11 @@
 use crate::lowering::core::AstLowering;
 use crate::{RirBlock, RirFunction, RirModule, RirParameter};
 use rive_core::Result;
-use rive_parser::ast::{Function as AstFunction, Item, Program};
+use rive_parser::ast::{Function as AstFunction, FunctionBody, Item, Program};
 
 impl AstLowering {
     /// Lowers a complete program to RIR.
     pub fn lower_program(&mut self, program: &Program) -> Result<RirModule> {
-        let mut module = RirModule::new(self.type_registry.clone());
-
         // First pass: register all function signatures
         for item in &program.items {
             match item {
@@ -22,13 +20,20 @@ impl AstLowering {
         }
 
         // Second pass: lower function bodies
+        let mut functions = Vec::new();
         for item in &program.items {
             match item {
                 Item::Function(func) => {
                     let rir_func = self.lower_function(func)?;
-                    module.add_function(rir_func);
+                    functions.push(rir_func);
                 }
             }
+        }
+
+        // Create module with the updated type registry (after all types have been created)
+        let mut module = RirModule::new(self.type_registry.clone());
+        for func in functions {
+            module.add_function(func);
         }
 
         Ok(module)
@@ -58,7 +63,18 @@ impl AstLowering {
             .collect::<Result<Vec<_>>>()?;
 
         let return_type = func.return_type;
-        let body = self.lower_block(&func.body)?;
+
+        // Lower function body based on its type
+        let body = match &func.body {
+            FunctionBody::Block(block) => self.lower_block(block)?,
+            FunctionBody::Expression(expr) => {
+                // For expression bodies, create a block with just the expression as final_expr
+                let mut rir_block = RirBlock::new(expr.span());
+                let final_expr = self.lower_expression(expr)?;
+                rir_block.final_expr = Some(Box::new(final_expr));
+                rir_block
+            }
+        };
 
         // Exit function scope
         self.exit_scope();

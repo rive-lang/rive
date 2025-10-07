@@ -1,13 +1,15 @@
 //! Function and parameter parsing.
 
 use super::parser::Parser;
-use crate::ast::{Function, Parameter};
+use crate::ast::{Function, FunctionBody, Parameter};
 use rive_core::Result;
 use rive_core::type_system::TypeId;
 use rive_lexer::TokenKind;
 
 impl<'a> Parser<'a> {
     /// Parses a function declaration.
+    /// Supports both block syntax: `fun name() { ... }`
+    /// and expression syntax: `fun name() = expr`
     pub(crate) fn parse_function(&mut self) -> Result<Function> {
         let start_span = self.expect(&TokenKind::Fun)?;
 
@@ -24,8 +26,18 @@ impl<'a> Parser<'a> {
             TypeId::UNIT
         };
 
-        let body = self.parse_block()?;
-        let end_span = body.span;
+        // Check if it's an expression body (= expr) or block body ({ ... })
+        let (body, end_span) = if self.match_token(&TokenKind::Equal) {
+            // Expression body: fun add(a: Int, b: Int): Int = a + b
+            let expr = self.parse_expression()?;
+            let expr_span = expr.span();
+            (FunctionBody::Expression(expr), expr_span)
+        } else {
+            // Block body: fun add(a: Int, b: Int): Int { return a + b }
+            let block = self.parse_block()?;
+            let block_span = block.span;
+            (FunctionBody::Block(block), block_span)
+        };
 
         Ok(Function {
             name,

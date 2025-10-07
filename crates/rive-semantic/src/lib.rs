@@ -42,10 +42,15 @@ use rive_parser::ast::Program;
 /// let result = analyze_with_registry(&ast, type_registry);
 /// assert!(result.is_ok());
 /// ```
-pub fn analyze_with_registry(program: &Program, type_registry: TypeRegistry) -> Result<()> {
+pub fn analyze_with_registry(
+    program: &Program,
+    type_registry: TypeRegistry,
+) -> Result<TypeRegistry> {
     let symbols = SymbolTable::with_registry(type_registry);
     let mut checker = TypeChecker::with_symbols(symbols);
-    checker.check_program(program)
+    checker.check_program(program)?;
+    // Extract and return the type registry
+    Ok(checker.into_type_registry())
 }
 
 /// Performs semantic analysis on a Rive program (for backward compatibility).

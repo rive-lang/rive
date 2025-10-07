@@ -34,11 +34,15 @@ pub fn parse_tokens(tokens: &[(Token, Span)], source: &str) -> Result<(Program, 
     })
 }
 
-/// Runs semantic analysis on the AST.
+/// Runs semantic analysis on the AST and returns the updated type registry.
 ///
 /// # Errors
 /// Returns an error if semantic analysis fails.
-pub fn analyze(program: &Program, type_registry: TypeRegistry, source: &str) -> Result<()> {
+pub fn analyze(
+    program: &Program,
+    type_registry: TypeRegistry,
+    source: &str,
+) -> Result<TypeRegistry> {
     rive_semantic::analyze_with_registry(program, type_registry).map_err(|e| {
         let report = miette::Report::new(e)
             .with_source_code(NamedSource::new("main.rive", source.to_string()));
@@ -79,7 +83,7 @@ pub fn generate(rir_module: &RirModule) -> Result<String> {
 pub fn check_pipeline(source: &str) -> Result<()> {
     let tokens = lex(source)?;
     let (ast, type_registry) = parse_tokens(&tokens, source)?;
-    analyze(&ast, type_registry.clone(), source)?;
+    let type_registry = analyze(&ast, type_registry, source)?;
     let rir_module = lower(&ast, type_registry, source)?;
     let _rust_code = generate(&rir_module)?;
     Ok(())
@@ -92,7 +96,7 @@ pub fn check_pipeline(source: &str) -> Result<()> {
 pub fn build_pipeline(source: &str) -> Result<String> {
     let tokens = lex(source)?;
     let (ast, type_registry) = parse_tokens(&tokens, source)?;
-    analyze(&ast, type_registry.clone(), source)?;
+    let type_registry = analyze(&ast, type_registry, source)?;
     let rir_module = lower(&ast, type_registry, source)?;
     generate(&rir_module)
 }
