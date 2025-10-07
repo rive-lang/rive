@@ -20,7 +20,7 @@ fn test_parse_simple_function() {
 
     assert_eq!(program.items.len(), 1);
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(func.name, "main");
     assert_eq!(func.params.len(), 0);
     assert_eq!(get_statements(&func.body).len(), 0);
@@ -34,7 +34,7 @@ fn test_parse_function_with_parameters() {
 
     assert_eq!(program.items.len(), 1);
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(func.name, "add");
     assert_eq!(func.params.len(), 2);
     assert_eq!(func.params[0].name, "x");
@@ -47,7 +47,7 @@ fn test_parse_let_statement() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(get_statements(&func.body).len(), 1);
 
     if let Statement::Let { name, mutable, .. } = &get_statements(&func.body)[0] {
@@ -64,7 +64,7 @@ fn test_parse_mutable_variable() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     if let Statement::Let { name, mutable, .. } = &get_statements(&func.body)[0] {
         assert_eq!(name, "count");
         assert!(mutable);
@@ -79,7 +79,7 @@ fn test_parse_binary_expression() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     if let Statement::Let { initializer, .. } = &get_statements(&func.body)[0] {
         if let Expression::Binary { operator, .. } = initializer {
             assert_eq!(operator, &BinaryOperator::Add);
@@ -95,7 +95,7 @@ fn test_parse_function_call() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     if let Statement::Expression { expression, .. } = &get_statements(&func.body)[0] {
         if let Expression::Call {
             callee, arguments, ..
@@ -115,7 +115,7 @@ fn test_parse_return_statement() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     if let Statement::Return { value, .. } = &get_statements(&func.body)[0] {
         assert!(value.is_some());
         if let Some(Expression::Integer { value, .. }) = value {
@@ -132,7 +132,7 @@ fn test_parse_array_literal() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     if let Statement::Let { initializer, .. } = &get_statements(&func.body)[0] {
         if let Expression::Array { elements, .. } = initializer {
             assert_eq!(elements.len(), 3);
@@ -155,7 +155,7 @@ fn test_parse_comparison_operators() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(get_statements(&func.body).len(), 6);
 }
 
@@ -167,7 +167,7 @@ fn test_parse_logical_operators() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(get_statements(&func.body).len(), 1);
 }
 
@@ -180,7 +180,7 @@ fn test_parse_unary_operators() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(get_statements(&func.body).len(), 2);
 }
 
@@ -192,7 +192,7 @@ fn test_parse_complex_expression() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(get_statements(&func.body).len(), 1);
 }
 
@@ -208,7 +208,7 @@ fn test_parse_hello_world() {
 
     assert_eq!(program.items.len(), 1);
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(func.name, "main");
     assert_eq!(get_statements(&func.body).len(), 1);
 }
@@ -221,7 +221,7 @@ fn test_parse_nullable_type() {
 
     assert_eq!(program.items.len(), 1);
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(func.name, "test");
     assert_eq!(func.params.len(), 1);
 
@@ -253,7 +253,7 @@ fn test_parse_multiple_nullable_types() {
     let tokens = tokenize(source).unwrap();
     let (program, type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(func.params.len(), 4);
 
     // All parameters should be nullable
@@ -275,7 +275,7 @@ fn test_parse_array_of_nullable_types() {
     let tokens = tokenize(source).unwrap();
     let (program, type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     let param_type = func.params[0].param_type;
     let param_meta = type_registry.get(param_type).unwrap();
 
@@ -314,7 +314,7 @@ fn test_parse_elvis_operator() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(get_statements(&func.body).len(), 2);
 
     // Check the Elvis operator expression
@@ -335,7 +335,7 @@ fn test_parse_chained_elvis() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     // Should parse successfully with nested Elvis
     assert_eq!(get_statements(&func.body).len(), 3);
 }
@@ -349,7 +349,7 @@ fn test_parse_safe_call() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(get_statements(&func.body).len(), 2);
 
     // Check the SafeCall expression
@@ -368,7 +368,7 @@ fn test_parse_chained_safe_call() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     // Should parse successfully with chained safe calls
     assert_eq!(get_statements(&func.body).len(), 1);
 }
@@ -381,7 +381,7 @@ fn test_parse_elvis_with_safe_call() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(get_statements(&func.body).len(), 1);
 
     // Should have Elvis with SafeCall inside
@@ -407,7 +407,7 @@ fn test_parse_block_expression() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(get_statements(&func.body).len(), 1);
 
     // Check block expression
@@ -430,7 +430,7 @@ fn test_parse_elvis_with_block() {
     let tokens = tokenize(source).unwrap();
     let (program, _type_registry) = parse(&tokens).unwrap();
 
-    let Item::Function(func) = &program.items[0];
+    let Item::Function(func) = &program.items[0] else { panic!("Expected function item") };
     assert_eq!(get_statements(&func.body).len(), 2);
 
     // Elvis with block fallback

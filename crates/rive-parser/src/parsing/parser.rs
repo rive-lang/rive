@@ -57,15 +57,23 @@ impl<'a> Parser<'a> {
         Ok(Program { items })
     }
 
-    /// Parses a top-level item (currently only functions).
+    /// Parses a top-level item.
     fn parse_item(&mut self) -> Result<Item> {
         if self.check(&TokenKind::Fun) {
             Ok(Item::Function(self.parse_function()?))
+        } else if self.check(&TokenKind::Type) {
+            Ok(Item::TypeDecl(self.parse_type_decl()?))
+        } else if self.check(&TokenKind::Interface) {
+            Ok(Item::InterfaceDecl(self.parse_interface_decl()?))
+        } else if self.check(&TokenKind::Impl) {
+            Ok(Item::ImplBlock(self.parse_impl_block()?))
+        } else if self.check(&TokenKind::Extend) {
+            Ok(Item::ImplBlock(self.parse_extend_block()?))
         } else {
             let span = self.current_span();
             Err(Error::Parser(
                 format!(
-                    "Expected function declaration, found '{}'",
+                    "Expected function, type, interface, impl, or extend declaration, found '{}'",
                     self.peek().0.text
                 ),
                 span,

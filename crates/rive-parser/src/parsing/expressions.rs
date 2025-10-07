@@ -242,6 +242,13 @@ impl<'a> Parser<'a> {
                             elements: arguments,
                             span,
                         };
+                    } else if name.chars().next().unwrap_or('_').is_uppercase() {
+                        // Constructor call: type names start with uppercase
+                        expr = Expression::ConstructorCall {
+                            type_name: name.clone(),
+                            arguments,
+                            span,
+                        };
                     } else {
                         expr = Expression::Call {
                             callee: name.clone(),
@@ -284,6 +291,20 @@ impl<'a> Parser<'a> {
                     let arguments = self.parse_argument_list()?;
                     let end_span = self.expect(&TokenKind::RightParen)?;
                     let span = expr.span().merge(end_span);
+
+                    // Check if object is a type name (for static method call)
+                    if let Expression::Variable { name, .. } = &expr {
+                        if name.chars().next().unwrap_or('_').is_uppercase() {
+                            // Static method call: Type.method()
+                            let func_name = format!("{}_{}", name, member_name);
+                            expr = Expression::Call {
+                                callee: func_name,
+                                arguments,
+                                span,
+                            };
+                            continue;
+                        }
+                    }
 
                     expr = Expression::MethodCall {
                         object: Box::new(expr),

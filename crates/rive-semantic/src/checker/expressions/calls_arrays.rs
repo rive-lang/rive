@@ -87,6 +87,64 @@ impl TypeChecker {
         Ok(return_type)
     }
 
+    /// Checks a constructor call.
+    pub(super) fn check_constructor_call(
+        &mut self,
+        type_name: &str,
+        arguments: &[Expression],
+        span: Span,
+    ) -> Result<TypeId> {
+        // Look up the type
+        let type_id = self
+            .symbols
+            .type_registry()
+            .get_by_name(type_name)
+            .ok_or_else(|| {
+                Error::SemanticWithSpan(format!("Unknown type '{type_name}'"), span)
+            })?;
+
+        // Get type metadata
+        let metadata = self.symbols.type_registry().get_type_metadata(type_id).clone();
+
+        // Extract constructor parameter types
+        use rive_core::type_system::TypeKind;
+        let param_types = if let TypeKind::Struct { fields, .. } = &metadata.kind {
+            fields.iter().map(|(_, t)| *t).collect::<Vec<_>>()
+        } else {
+            return Err(Error::SemanticWithSpan(
+                format!("Type '{type_name}' is not constructible"),
+                span,
+            ));
+        };
+
+        // Check argument count
+        if arguments.len() != param_types.len() {
+            return Err(Error::SemanticWithSpan(
+                format!(
+                    "Constructor for '{type_name}' expects {} arguments, but {} were provided",
+                    param_types.len(),
+                    arguments.len()
+                ),
+                span,
+            ));
+        }
+
+        // Check argument types
+        for (i, (expected_type, arg)) in param_types.iter().zip(arguments.iter()).enumerate() {
+            let arg_type = self.check_expression(arg)?;
+            if !self.types_compatible(*expected_type, arg_type) {
+                return Err(self.type_mismatch_error(
+                    &format!("Constructor argument {} type mismatch", i + 1),
+                    *expected_type,
+                    arg_type,
+                    span,
+                ));
+            }
+        }
+
+        Ok(type_id)
+    }
+
     /// Checks an array literal.
     pub(super) fn check_array(&mut self, elements: &[Expression], span: Span) -> Result<TypeId> {
         if elements.is_empty() {
@@ -216,16 +274,23 @@ impl TypeChecker {
         // Look up method in type registry
         let method_sig = {
             let registry = self.symbols.type_registry();
-            registry
-                .get_method(object_type, method)
-                .ok_or_else(|| {
-                    let type_name = registry.get_type_name(object_type);
-                    Error::SemanticWithSpan(
-                        format!("Type '{type_name}' has no method '{method}'"),
-                        span,
-                    )
-                })?
-                .clone()
+            if let Some(sig) = registry.get_method(object_type, method) {
+                sig.clone()
+            } else {
+                // Check if it's a user-defined type
+                let metadata = registry.get_type_metadata(object_type);
+                let type_name = metadata.kind.name();
+                if !type_name.is_empty() && object_type.as_u64() >= rive_core::type_system::TypeId::USER_DEFINED_START {
+                    // For user-defined types, assume method exists and return Unit
+                    // TODO: Store method signatures in type metadata
+                    return Ok(TypeId::UNIT);
+                }
+                
+                return Err(Error::SemanticWithSpan(
+                    format!("Type '{type_name}' has no method '{method}'"),
+                    span,
+                ));
+            }
         };
 
         // Check argument count
@@ -313,6 +378,19 @@ impl TypeChecker {
                 }
 
                 Ok(elements[index])
+            }
+            TypeKind::Struct { fields, .. } => {
+                // Look up field in struct
+                for (field_name, field_type) in fields {
+                    if field_name == field {
+                        return Ok(*field_type);
+                    }
+                }
+                let type_name = registry.get_type_name(object_type);
+                Err(Error::SemanticWithSpan(
+                    format!("Type '{type_name}' has no field '{field}'"),
+                    span,
+                ))
             }
             _ => {
                 let type_name = registry.get_type_name(object_type);

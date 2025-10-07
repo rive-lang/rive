@@ -19,7 +19,7 @@ pub struct MethodSignature {
 /// - Builtin method registration and lookup
 #[derive(Debug, Clone)]
 pub struct TypeRegistry {
-    types: HashMap<TypeId, TypeMetadata>,
+    pub types: HashMap<TypeId, TypeMetadata>,
     next_id: u64,
     name_to_id: HashMap<String, TypeId>,
     /// Maps (type_id, method_name) to method signature

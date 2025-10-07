@@ -18,7 +18,7 @@ pub enum MemoryStrategy {
     ///
     /// Assignment creates a logical copy using Rc<T> and RefCell<T>.
     /// Mutations trigger automatic cloning when reference count > 1.
-    /// Example: `let b = a` shares the data; `b.push(x)` clones if shared
+    /// Example: `let b = a` shares the data; `b.append(x)` clones if shared
     CoW,
 
     /// Move-only semantics, no sharing allowed

@@ -49,7 +49,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a parameter list.
-    fn parse_parameter_list(&mut self) -> Result<Vec<Parameter>> {
+    pub(super) fn parse_parameter_list(&mut self) -> Result<Vec<Parameter>> {
         let mut params = Vec::new();
 
         if !self.check(&TokenKind::RightParen) {

@@ -57,6 +57,12 @@ impl TypeChecker {
                 span,
             } => self.check_call(callee, arguments, *span),
 
+            Expression::ConstructorCall {
+                type_name,
+                arguments,
+                span,
+            } => self.check_constructor_call(type_name, arguments, *span),
+
             Expression::Array { elements, span } => self.check_array(elements, *span),
 
             // Control flow expressions

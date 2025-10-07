@@ -126,6 +126,9 @@ impl CodeGenerator {
             RirExpression::FieldAccess { object, field, .. } => {
                 self.generate_field_access(object, field)
             }
+            RirExpression::ConstructorCall {
+                type_id, arguments, ..
+            } => self.generate_constructor_call(*type_id, arguments),
         }
     }
 }

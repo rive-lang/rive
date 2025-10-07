@@ -8,13 +8,43 @@ use rive_parser::ast::{Function as AstFunction, FunctionBody, Item, Program};
 impl AstLowering {
     /// Lowers a complete program to RIR.
     pub fn lower_program(&mut self, program: &Program) -> Result<RirModule> {
-        // First pass: register all function signatures
+        // First pass: register all function signatures and type declarations
         for item in &program.items {
             match item {
                 Item::Function(func) => {
                     let param_types: Vec<_> = func.params.iter().map(|p| p.param_type).collect();
                     let return_type = func.return_type;
                     self.define_function(func.name.clone(), param_types, return_type);
+                }
+                Item::TypeDecl(type_decl) => {
+                    // Register methods in the function table
+                    for method in &type_decl.methods {
+                        let func_name = if method.is_static {
+                            format!("{}_{}", type_decl.name, method.name)
+                        } else {
+                            format!("{}_instance_{}", type_decl.name, method.name)
+                        };
+                        let params: Vec<rive_core::type_system::TypeId> =
+                            method.params.iter().map(|p| p.param_type).collect();
+                        self.define_function(func_name, params, method.return_type);
+                    }
+                }
+                Item::InterfaceDecl(_interface) => {
+                    // Interface declarations define method signatures
+                    // No code generation needed
+                }
+                Item::ImplBlock(impl_block) => {
+                    // Register impl block methods in the function table
+                    for method in &impl_block.methods {
+                        let func_name = if method.is_static {
+                            format!("{}_{}", impl_block.target_type, method.name)
+                        } else {
+                            format!("{}_instance_{}", impl_block.target_type, method.name)
+                        };
+                        let params: Vec<rive_core::type_system::TypeId> =
+                            method.params.iter().map(|p| p.param_type).collect();
+                        self.define_function(func_name, params, method.return_type);
+                    }
                 }
             }
         }
@@ -27,6 +57,39 @@ impl AstLowering {
                     let rir_func = self.lower_function(func)?;
                     functions.push(rir_func);
                 }
+                Item::TypeDecl(type_decl) => {
+                    // Get type ID
+                    let type_id = self.type_registry.get_by_name(&type_decl.name).unwrap();
+                    
+                    // Lower type methods to RIR functions
+                    for method in &type_decl.methods {
+                        let func_name = if method.is_static {
+                            format!("{}_{}", type_decl.name, method.name)
+                        } else {
+                            format!("{}_instance_{}", type_decl.name, method.name)
+                        };
+                        let rir_func = self.lower_method(method, &func_name, type_id)?;
+                        functions.push(rir_func);
+                    }
+                }
+                Item::InterfaceDecl(_interface) => {
+                    // Interface declarations don't generate code directly
+                }
+                Item::ImplBlock(impl_block) => {
+                    // Get type ID
+                    let type_id = self.type_registry.get_by_name(&impl_block.target_type).unwrap();
+                    
+                    // Lower impl block methods to RIR functions
+                    for method in &impl_block.methods {
+                        let func_name = if method.is_static {
+                            format!("{}_{}", impl_block.target_type, method.name)
+                        } else {
+                            format!("{}_instance_{}", impl_block.target_type, method.name)
+                        };
+                        let rir_func = self.lower_method(method, &func_name, type_id)?;
+                        functions.push(rir_func);
+                    }
+                }
             }
         }
 
@@ -37,6 +100,77 @@ impl AstLowering {
         }
 
         Ok(module)
+    }
+
+    /// Lowers a method declaration to RIR.
+    fn lower_method(
+        &mut self,
+        method: &rive_parser::ast::MethodDecl,
+        func_name: &str,
+        type_id: rive_core::type_system::TypeId,
+    ) -> Result<RirFunction> {
+        self.enter_scope();
+
+        // For instance methods, add 'self' as the first parameter
+        let mut parameters = Vec::new();
+        if !method.is_static {
+            let memory_strategy = self.determine_memory_strategy(type_id);
+            let self_param = RirParameter::new(
+                "self".to_string(),
+                type_id,
+                false, // self is immutable by default
+                memory_strategy,
+                method.span,
+            );
+            parameters.push(self_param);
+            self.define_variable("self".to_string(), type_id, false);
+            
+            // Don't register fields as variables - they should be accessed via self.field
+        }
+
+        // Add user-defined parameters
+        let user_params: Vec<RirParameter> = method
+            .params
+            .iter()
+            .map(|p| {
+                let type_id = p.param_type;
+                self.define_variable(p.name.clone(), type_id, false);
+                let memory_strategy = self.determine_memory_strategy(type_id);
+                Ok(RirParameter::new(
+                    p.name.clone(),
+                    type_id,
+                    false,
+                    memory_strategy,
+                    p.span,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        
+        parameters.extend(user_params);
+
+        let return_type = method.return_type;
+
+        // Lower the method body
+        let body = match &method.body {
+            rive_parser::ast::FunctionBody::Block(block) => self.lower_block(block)?,
+            rive_parser::ast::FunctionBody::Expression(expr) => {
+                // For expression bodies, create a block with just the expression as final_expr
+                let mut rir_block = RirBlock::new(expr.span());
+                let final_expr = self.lower_expression(expr)?;
+                rir_block.final_expr = Some(Box::new(final_expr));
+                rir_block
+            }
+        };
+
+        self.exit_scope();
+
+        Ok(RirFunction::new(
+            func_name.to_string(),
+            parameters,
+            return_type,
+            body,
+            method.span,
+        ))
     }
 
     /// Lowers a function declaration.

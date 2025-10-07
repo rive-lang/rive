@@ -34,7 +34,8 @@ impl RirExpression {
             | Self::ListLiteral { span, .. }
             | Self::DictLiteral { span, .. }
             | Self::MethodCall { span, .. }
-            | Self::FieldAccess { span, .. } => *span,
+            | Self::FieldAccess { span, .. }
+            | Self::ConstructorCall { span, .. } => *span,
         }
     }
 
@@ -119,6 +120,7 @@ impl RirExpression {
             } => *type_id,
             Self::ArrayLiteral { element_type, .. } => *element_type,
             Self::MethodCall { return_type, .. } => *return_type,
+            Self::ConstructorCall { type_id, .. } => *type_id,
         }
     }
 

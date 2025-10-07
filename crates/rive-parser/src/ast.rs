@@ -13,6 +13,9 @@ pub struct Program {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Function(Function),
+    TypeDecl(TypeDecl),
+    InterfaceDecl(InterfaceDecl),
+    ImplBlock(ImplBlock),
 }
 
 /// Function declaration.
@@ -139,6 +142,13 @@ pub enum Expression {
         span: Span,
     },
 
+    /// Constructor call: `TypeName(args...)`
+    ConstructorCall {
+        type_name: String,
+        arguments: Vec<Expression>,
+        span: Span,
+    },
+
     /// Array literal: `[expr, ...]`
     Array {
         elements: Vec<Expression>,
@@ -247,6 +257,7 @@ impl Expression {
             Self::Dict { span, .. } => *span,
             Self::MethodCall { span, .. } => *span,
             Self::FieldAccess { span, .. } => *span,
+            Self::ConstructorCall { span, .. } => *span,
         }
     }
 }
@@ -279,4 +290,76 @@ pub enum BinaryOperator {
 pub enum UnaryOperator {
     Negate,
     Not,
+}
+
+/// Type declaration: `type Name(ctor_params) { fields, methods, impls }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeDecl {
+    pub name: String,
+    /// Constructor parameters that become fields
+    pub ctor_params: Vec<Field>,
+    /// Additional fields defined in the body
+    pub fields: Vec<Field>,
+    /// Methods defined in the type body
+    pub methods: Vec<MethodDecl>,
+    /// Inline interface implementations
+    pub inline_impls: Vec<InlineImpl>,
+    pub span: Span,
+}
+
+/// Field definition in a type
+#[derive(Debug, Clone, PartialEq)]
+pub struct Field {
+    pub name: String,
+    pub field_type: TypeId,
+    pub mutable: bool,
+    pub span: Span,
+}
+
+/// Method declaration (instance or static)
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodDecl {
+    pub name: String,
+    pub is_static: bool,
+    pub params: Vec<Parameter>,
+    pub return_type: TypeId,
+    pub body: FunctionBody,
+    pub span: Span,
+}
+
+/// Interface declaration: `interface Name { method_signatures }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterfaceDecl {
+    pub name: String,
+    pub methods: Vec<MethodSig>,
+    pub span: Span,
+}
+
+/// Method signature (no body)
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodSig {
+    pub name: String,
+    pub params: Vec<Parameter>,
+    pub return_type: TypeId,
+    pub span: Span,
+}
+
+/// Implementation block: `impl [Interface for] Type { methods }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplBlock {
+    /// Type being implemented for
+    pub target_type: String,
+    /// Optional interface being implemented
+    pub interface: Option<String>,
+    /// Methods in this impl block
+    pub methods: Vec<MethodDecl>,
+    pub span: Span,
+}
+
+/// Inline implementation within type declaration
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlineImpl {
+    pub interface: String,
+    pub methods: Vec<MethodDecl>,
+    pub span: Span,
 }

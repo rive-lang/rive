@@ -194,6 +194,13 @@ pub enum RirExpression {
         result_type: TypeId,
         span: Span,
     },
+
+    /// Constructor call: TypeName(args...)
+    ConstructorCall {
+        type_id: TypeId,
+        arguments: Vec<RirExpression>,
+        span: Span,
+    },
 }
 
 impl RirExpression {

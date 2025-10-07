@@ -24,6 +24,49 @@ impl CodeGenerator {
             return self.generate_print_call(arguments);
         }
 
+        // Check if this is an instance method call (Type_instance_method)
+        if function.contains("_instance_") {
+            let parts: Vec<&str> = function.split("_instance_").collect();
+            if parts.len() == 2 && !arguments.is_empty() {
+                let type_ident = format_ident!("{}", parts[0]);
+                let method_ident = format_ident!("{}", parts[1]);
+                
+                let obj_expr = self.generate_expression(&arguments[0])?;
+                let args: Result<Vec<_>> = arguments[1..]
+                    .iter()
+                    .map(|arg| self.generate_expression(arg))
+                    .collect();
+                let args = args?;
+                
+                return Ok(quote! {
+                    #type_ident::#method_ident(&#obj_expr, #(#args),*)
+                });
+            }
+        }
+        
+        // Check if this is a static method call (Type_method, but not _instance_)
+        if function.contains('_') && !function.starts_with('_') {
+            let parts: Vec<&str> = function.split('_').collect();
+            if parts.len() == 2 {
+                let first_char = parts[0].chars().next().unwrap_or('_');
+                if first_char.is_uppercase() {
+                    // Static method call - generate as Type::method()
+                    let type_ident = format_ident!("{}", parts[0]);
+                    let method_ident = format_ident!("{}", parts[1]);
+                    
+                    let args: Result<Vec<_>> = arguments
+                        .iter()
+                        .map(|arg| self.generate_expression(arg))
+                        .collect();
+                    let args = args?;
+                    
+                    return Ok(quote! {
+                        #type_ident::#method_ident(#(#args),*)
+                    });
+                }
+            }
+        }
+
         // General function call
         let func_name = format_ident!("{}", function);
         let args = arguments
