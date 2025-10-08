@@ -53,9 +53,10 @@ impl CodeGenerator {
         type_id: rive_core::type_system::TypeId,
         arguments: &[rive_ir::RirExpression],
     ) -> Result<TokenStream> {
-        let type_meta = self.type_registry.get(type_id).ok_or_else(|| {
-            Error::Codegen(format!("Type {:?} not found in registry", type_id))
-        })?;
+        let type_meta = self
+            .type_registry
+            .get(type_id)
+            .ok_or_else(|| Error::Codegen(format!("Type {:?} not found in registry", type_id)))?;
 
         // Extract the type name
         let type_name = type_meta.kind.name();
@@ -70,14 +71,26 @@ impl CodeGenerator {
 
         // Generate field initialization from arguments
         use rive_core::type_system::TypeKind;
-        let fields = if let TypeKind::Struct { fields, .. } = &type_meta.kind {
-            fields.clone()
-        } else {
-            return Err(Error::Codegen(format!(
-                "Type '{}' is not a struct",
-                type_name
-            )));
+        let fields = match &type_meta.kind {
+            TypeKind::Struct { fields, .. } => fields.clone(),
+            TypeKind::Enum { .. } => {
+                // For enums, we'll generate a simple placeholder for now
+                // TODO: Implement proper enum codegen with Rust enum types
+                Vec::new()
+            }
+            _ => {
+                return Err(Error::Codegen(format!(
+                    "Type '{}' is not constructible",
+                    type_name
+                )));
+            }
         };
+
+        // For enums, generate a placeholder unit value for now
+        if matches!(type_meta.kind, TypeKind::Enum { .. }) {
+            // TODO: Implement proper enum variant construction
+            return Ok(quote! { () });
+        }
 
         // Generate argument expressions first
         let arg_exprs: Vec<TokenStream> = arguments
@@ -98,6 +111,85 @@ impl CodeGenerator {
         Ok(quote! {
             #type_ident { #(#field_inits),* }
         })
+    }
+
+    /// Generates code for an enum variant construction.
+    pub(crate) fn generate_enum_variant(
+        &mut self,
+        enum_type_id: rive_core::type_system::TypeId,
+        variant_name: &str,
+        arguments: &[rive_ir::RirExpression],
+    ) -> Result<TokenStream> {
+        use rive_core::type_system::TypeKind;
+
+        let type_meta = self.type_registry.get(enum_type_id).ok_or_else(|| {
+            Error::Codegen(format!(
+                "Enum type {:?} not found in registry",
+                enum_type_id
+            ))
+        })?;
+
+        // Extract the enum name
+        let enum_name = type_meta.kind.name();
+        if enum_name.is_empty() {
+            return Err(Error::Codegen(format!(
+                "Cannot construct anonymous enum {:?}",
+                enum_type_id
+            )));
+        }
+
+        let enum_ident = format_ident!("{}", enum_name);
+        let variant_ident = format_ident!("{}", variant_name);
+
+        // Get the variant definition and clone the fields
+        let variant_fields = match &type_meta.kind {
+            TypeKind::Enum { variants, .. } => {
+                let variant = variants
+                    .iter()
+                    .find(|v| v.name == variant_name)
+                    .ok_or_else(|| {
+                        Error::Codegen(format!(
+                            "Variant '{}' not found in enum '{}'",
+                            variant_name, enum_name
+                        ))
+                    })?;
+                variant.fields.clone()
+            }
+            _ => {
+                return Err(Error::Codegen(format!(
+                    "Type '{}' is not an enum",
+                    enum_name
+                )));
+            }
+        };
+
+        // Generate argument expressions
+        let arg_exprs: Vec<TokenStream> = arguments
+            .iter()
+            .map(|arg| self.generate_expression(arg))
+            .collect::<Result<Vec<_>>>()?;
+
+        // Build the enum variant construction
+        if let Some(fields) = &variant_fields {
+            // Variant with named fields
+            let field_inits: Vec<TokenStream> = fields
+                .iter()
+                .zip(arg_exprs.iter())
+                .map(|((field_name, _), arg)| {
+                    let field = format_ident!("{}", field_name);
+                    quote! { #field: #arg }
+                })
+                .collect();
+
+            Ok(quote! {
+                #enum_ident::#variant_ident { #(#field_inits),* }
+            })
+        } else {
+            // Variant without fields
+            Ok(quote! {
+                #enum_ident::#variant_ident
+            })
+        }
     }
 
     /// Generates a loop (for/while/loop) as a statement (no return value).
@@ -146,26 +238,33 @@ impl CodeGenerator {
         // Generate struct definitions for user-defined types
         let mut struct_defs = Vec::new();
         for (type_id, metadata) in &module.type_registry.types {
-            if type_id.as_u64() >= rive_core::type_system::TypeId::USER_DEFINED_START {
-                if let Some(struct_def) = self.generate_struct_definition(metadata)? {
-                    struct_defs.push(struct_def);
-                }
+            if type_id.as_u64() >= rive_core::type_system::TypeId::USER_DEFINED_START
+                && let Some(struct_def) = self.generate_struct_definition(metadata)?
+            {
+                struct_defs.push(struct_def);
             }
         }
 
         // Group methods by type for impl blocks
-        let mut type_methods: std::collections::HashMap<String, Vec<&RirFunction>> = std::collections::HashMap::new();
+        let mut type_methods: std::collections::HashMap<String, Vec<&RirFunction>> =
+            std::collections::HashMap::new();
         let mut standalone_functions = Vec::new();
 
         for function in &module.functions {
             // Check if this is a method (instance or static)
-            let is_instance_method = function.parameters.first().map_or(false, |p| p.name == "self");
+            let is_instance_method = function
+                .parameters
+                .first()
+                .is_some_and(|p| p.name == "self");
             let is_static_method = function.name.contains("_") && !is_instance_method;
-            
+
             if is_instance_method {
                 // Extract type name from "TypeName_instance_methodName"
                 if let Some(type_name) = function.name.split("_instance_").next() {
-                    type_methods.entry(type_name.to_string()).or_insert_with(Vec::new).push(function);
+                    type_methods
+                        .entry(type_name.to_string())
+                        .or_default()
+                        .push(function);
                 } else {
                     standalone_functions.push(function);
                 }
@@ -175,7 +274,10 @@ impl CodeGenerator {
                     let type_name = &function.name[..underscore_pos];
                     // Verify this is actually a user-defined type
                     if self.type_registry.get_by_name(type_name).is_some() {
-                        type_methods.entry(type_name.to_string()).or_insert_with(Vec::new).push(function);
+                        type_methods
+                            .entry(type_name.to_string())
+                            .or_default()
+                            .push(function);
                     } else {
                         standalone_functions.push(function);
                     }
@@ -191,11 +293,12 @@ impl CodeGenerator {
         let mut impl_blocks = Vec::new();
         for (type_name, methods) in type_methods {
             let type_ident = format_ident!("{}", type_name);
-            let method_defs: Result<Vec<_>> = methods.iter()
+            let method_defs: Result<Vec<_>> = methods
+                .iter()
                 .map(|func| self.generate_method_definition(func))
                 .collect();
             let method_defs = method_defs?;
-            
+
             impl_blocks.push(quote! {
                 impl #type_ident {
                     #(#method_defs)*
@@ -204,7 +307,8 @@ impl CodeGenerator {
         }
 
         // Generate standalone functions
-        let standalone_items: Result<Vec<_>> = standalone_functions.iter()
+        let standalone_items: Result<Vec<_>> = standalone_functions
+            .iter()
             .map(|function| self.generate_standalone_function(function))
             .collect();
         let standalone_items = standalone_items?;
@@ -232,7 +336,10 @@ impl CodeGenerator {
                 let type_ident = format_ident!("{}", type_name);
                 quote! {-> #type_ident}
             } else {
-                eprintln!("Warning: User-defined type {:?} not found in registry", type_id);
+                eprintln!(
+                    "Warning: User-defined type {:?} not found in registry",
+                    type_id
+                );
                 quote! {}
             }
         } else {
@@ -242,8 +349,11 @@ impl CodeGenerator {
 
     /// Generates a method definition (without the impl block wrapper).
     fn generate_method_definition(&mut self, function: &RirFunction) -> Result<TokenStream> {
-        let is_instance_method = function.parameters.first().map_or(false, |p| p.name == "self");
-        
+        let is_instance_method = function
+            .parameters
+            .first()
+            .is_some_and(|p| p.name == "self");
+
         if is_instance_method {
             // Instance method
             let other_params = if function.parameters.len() > 1 {
@@ -251,17 +361,18 @@ impl CodeGenerator {
             } else {
                 vec![]
             };
-            
+
             let return_type = self.generate_return_type_with_registry(function.return_type);
             let body = self.generate_block(&function.body)?;
-            
+
             // Extract method name from "TypeName_instance_methodName"
-            let method_name = function.name
+            let method_name = function
+                .name
                 .split("_instance_")
                 .last()
                 .unwrap_or(&function.name);
             let method_ident = format_ident!("{}", method_name);
-            
+
             if inline::should_inline_function(function) {
                 Ok(quote! {
                     #[inline]
@@ -281,14 +392,15 @@ impl CodeGenerator {
             let params = self.generate_parameters(&function.parameters)?;
             let return_type = self.generate_return_type_with_registry(function.return_type);
             let body = self.generate_block(&function.body)?;
-            
+
             // Extract method name from "TypeName_methodName"
-            let method_name = function.name
+            let method_name = function
+                .name
                 .splitn(2, '_')
                 .last()
                 .unwrap_or(&function.name);
             let method_ident = format_ident!("{}", method_name);
-            
+
             if inline::should_inline_function(function) {
                 Ok(quote! {
                     #[inline]
@@ -343,15 +455,48 @@ impl CodeGenerator {
                     .iter()
                     .map(|(field_name, field_type)| {
                         let field_ident = format_ident!("{}", field_name);
-                        let field_type_str = types::rust_type(*field_type, metadata.memory_strategy)?;
+                        let field_type_str =
+                            types::rust_type(*field_type, metadata.memory_strategy)?;
                         Ok(quote! { #field_ident: #field_type_str })
                     })
                     .collect::<Result<Vec<_>>>()?;
 
                 Ok(Some(quote! {
-                    #[derive(Debug, Clone)]
+                    #[derive(Debug, Clone, PartialEq)]
                     struct #struct_name {
                         #(#field_defs),*
+                    }
+                }))
+            }
+            TypeKind::Enum { name, variants } => {
+                let enum_name = format_ident!("{}", name);
+                let variant_defs: Vec<TokenStream> = variants
+                    .iter()
+                    .map(|variant| {
+                        let variant_ident = format_ident!("{}", variant.name);
+                        if let Some(fields) = &variant.fields {
+                            // Variant with named fields
+                            let field_defs: Vec<TokenStream> = fields
+                                .iter()
+                                .map(|(field_name, field_type)| {
+                                    let field_ident = format_ident!("{}", field_name);
+                                    let field_type_str =
+                                        types::rust_type(*field_type, metadata.memory_strategy)?;
+                                    Ok(quote! { #field_ident: #field_type_str })
+                                })
+                                .collect::<Result<Vec<_>>>()?;
+                            Ok(quote! { #variant_ident { #(#field_defs),* } })
+                        } else {
+                            // Variant without fields
+                            Ok(quote! { #variant_ident })
+                        }
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+
+                Ok(Some(quote! {
+                    #[derive(Debug, Clone, PartialEq)]
+                    enum #enum_name {
+                        #(#variant_defs),*
                     }
                 }))
             }

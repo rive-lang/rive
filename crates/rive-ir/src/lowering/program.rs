@@ -28,6 +28,20 @@ impl AstLowering {
                             method.params.iter().map(|p| p.param_type).collect();
                         self.define_function(func_name, params, method.return_type);
                     }
+
+                    // Register inline impl methods
+                    for inline_impl in &type_decl.inline_impls {
+                        for method in &inline_impl.methods {
+                            let func_name = if method.is_static {
+                                format!("{}_{}", type_decl.name, method.name)
+                            } else {
+                                format!("{}_instance_{}", type_decl.name, method.name)
+                            };
+                            let params: Vec<rive_core::type_system::TypeId> =
+                                method.params.iter().map(|p| p.param_type).collect();
+                            self.define_function(func_name, params, method.return_type);
+                        }
+                    }
                 }
                 Item::InterfaceDecl(_interface) => {
                     // Interface declarations define method signatures
@@ -40,6 +54,19 @@ impl AstLowering {
                             format!("{}_{}", impl_block.target_type, method.name)
                         } else {
                             format!("{}_instance_{}", impl_block.target_type, method.name)
+                        };
+                        let params: Vec<rive_core::type_system::TypeId> =
+                            method.params.iter().map(|p| p.param_type).collect();
+                        self.define_function(func_name, params, method.return_type);
+                    }
+                }
+                Item::EnumDecl(enum_decl) => {
+                    // Register enum methods in the function table
+                    for method in &enum_decl.methods {
+                        let func_name = if method.is_static {
+                            format!("{}_{}", enum_decl.name, method.name)
+                        } else {
+                            format!("{}_instance_{}", enum_decl.name, method.name)
                         };
                         let params: Vec<rive_core::type_system::TypeId> =
                             method.params.iter().map(|p| p.param_type).collect();
@@ -60,7 +87,7 @@ impl AstLowering {
                 Item::TypeDecl(type_decl) => {
                     // Get type ID
                     let type_id = self.type_registry.get_by_name(&type_decl.name).unwrap();
-                    
+
                     // Lower type methods to RIR functions
                     for method in &type_decl.methods {
                         let func_name = if method.is_static {
@@ -71,20 +98,51 @@ impl AstLowering {
                         let rir_func = self.lower_method(method, &func_name, type_id)?;
                         functions.push(rir_func);
                     }
+
+                    // Lower inline impl methods
+                    for inline_impl in &type_decl.inline_impls {
+                        for method in &inline_impl.methods {
+                            let func_name = if method.is_static {
+                                format!("{}_{}", type_decl.name, method.name)
+                            } else {
+                                format!("{}_instance_{}", type_decl.name, method.name)
+                            };
+                            let rir_func = self.lower_method(method, &func_name, type_id)?;
+                            functions.push(rir_func);
+                        }
+                    }
                 }
                 Item::InterfaceDecl(_interface) => {
                     // Interface declarations don't generate code directly
                 }
                 Item::ImplBlock(impl_block) => {
                     // Get type ID
-                    let type_id = self.type_registry.get_by_name(&impl_block.target_type).unwrap();
-                    
+                    let type_id = self
+                        .type_registry
+                        .get_by_name(&impl_block.target_type)
+                        .unwrap();
+
                     // Lower impl block methods to RIR functions
                     for method in &impl_block.methods {
                         let func_name = if method.is_static {
                             format!("{}_{}", impl_block.target_type, method.name)
                         } else {
                             format!("{}_instance_{}", impl_block.target_type, method.name)
+                        };
+                        let rir_func = self.lower_method(method, &func_name, type_id)?;
+                        functions.push(rir_func);
+                    }
+                }
+                Item::EnumDecl(enum_decl) => {
+                    // Get enum type ID
+                    let type_id = self.type_registry.get_by_name(&enum_decl.name).unwrap();
+
+                    // Lower enum methods to RIR functions
+                    for method in &enum_decl.methods {
+                        let func_name = if method.is_static {
+                            format!("{}_{}", enum_decl.name, method.name)
+                        } else {
+                            format!("{}_instance_{}", enum_decl.name, method.name)
                         };
                         let rir_func = self.lower_method(method, &func_name, type_id)?;
                         functions.push(rir_func);
@@ -124,7 +182,7 @@ impl AstLowering {
             );
             parameters.push(self_param);
             self.define_variable("self".to_string(), type_id, false);
-            
+
             // Don't register fields as variables - they should be accessed via self.field
         }
 
@@ -145,7 +203,7 @@ impl AstLowering {
                 ))
             })
             .collect::<Result<Vec<_>>>()?;
-        
+
         parameters.extend(user_params);
 
         let return_type = method.return_type;

@@ -3,14 +3,14 @@
 use crate::checker::core::TypeChecker;
 use rive_core::type_system::TypeId;
 use rive_core::{Error, Result, Span};
-use rive_parser::ast::Expression;
+use rive_parser::ast::{Argument, Expression};
 
 impl TypeChecker {
     /// Checks a function call.
     pub(super) fn check_call(
         &mut self,
         callee: &str,
-        arguments: &[Expression],
+        arguments: &[Argument],
         span: Span,
     ) -> Result<TypeId> {
         // Special handling for built-in print function
@@ -23,7 +23,7 @@ impl TypeChecker {
             }
             // Check all arguments
             for arg in arguments {
-                self.check_expression(arg)?;
+                self.check_argument(arg)?;
             }
             return Ok(TypeId::UNIT);
         }
@@ -72,7 +72,7 @@ impl TypeChecker {
 
         // Check argument types
         for (i, (expected_type, arg)) in param_types.iter().zip(args_clone.iter()).enumerate() {
-            let arg_type = self.check_expression(arg)?;
+            let arg_type = self.check_argument(arg)?;
             // Check if arg_type can be assigned to expected_type
             if !self.types_compatible(*expected_type, arg_type) {
                 return Err(self.type_mismatch_error(
@@ -87,11 +87,97 @@ impl TypeChecker {
         Ok(return_type)
     }
 
+    /// Helper to check an argument (handles both positional and named).
+    fn check_argument(&mut self, arg: &Argument) -> Result<TypeId> {
+        match arg {
+            Argument::Positional(expr) => self.check_expression(expr),
+            Argument::Named { value, .. } => self.check_expression(value),
+        }
+    }
+
+    /// Checks an enum variant construction.
+    pub(super) fn check_enum_variant(
+        &mut self,
+        enum_name: &str,
+        variant_name: &str,
+        arguments: &[Argument],
+        span: Span,
+    ) -> Result<TypeId> {
+        // Look up the enum type
+        let enum_type_id = self
+            .symbols
+            .type_registry()
+            .get_by_name(enum_name)
+            .ok_or_else(|| Error::SemanticWithSpan(format!("Unknown enum '{enum_name}'"), span))?;
+
+        // Get type metadata and verify it's an enum
+        let metadata = self
+            .symbols
+            .type_registry()
+            .get_type_metadata(enum_type_id)
+            .clone();
+
+        use rive_core::type_system::TypeKind;
+        let variants = if let TypeKind::Enum { variants, .. } = &metadata.kind {
+            variants
+        } else {
+            return Err(Error::SemanticWithSpan(
+                format!("'{enum_name}' is not an enum"),
+                span,
+            ));
+        };
+
+        // Find the variant
+        let variant = variants
+            .iter()
+            .find(|v| v.name == variant_name)
+            .ok_or_else(|| {
+                Error::SemanticWithSpan(
+                    format!("Enum '{enum_name}' has no variant '{variant_name}'"),
+                    span,
+                )
+            })?;
+
+        // Check arguments match variant fields
+        let param_types = if let Some(fields) = &variant.fields {
+            fields.iter().map(|(_, t)| *t).collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+
+        // Check argument count
+        if arguments.len() != param_types.len() {
+            return Err(Error::SemanticWithSpan(
+                format!(
+                    "Variant '{enum_name}::{variant_name}' expects {} arguments, but {} were provided",
+                    param_types.len(),
+                    arguments.len()
+                ),
+                span,
+            ));
+        }
+
+        // Check argument types
+        for (i, (expected_type, arg)) in param_types.iter().zip(arguments.iter()).enumerate() {
+            let arg_type = self.check_argument(arg)?;
+            if !self.types_compatible(*expected_type, arg_type) {
+                return Err(self.type_mismatch_error(
+                    &format!("Variant argument {} type mismatch", i + 1),
+                    *expected_type,
+                    arg_type,
+                    span,
+                ));
+            }
+        }
+
+        Ok(enum_type_id)
+    }
+
     /// Checks a constructor call.
     pub(super) fn check_constructor_call(
         &mut self,
         type_name: &str,
-        arguments: &[Expression],
+        arguments: &[Argument],
         span: Span,
     ) -> Result<TypeId> {
         // Look up the type
@@ -99,12 +185,14 @@ impl TypeChecker {
             .symbols
             .type_registry()
             .get_by_name(type_name)
-            .ok_or_else(|| {
-                Error::SemanticWithSpan(format!("Unknown type '{type_name}'"), span)
-            })?;
+            .ok_or_else(|| Error::SemanticWithSpan(format!("Unknown type '{type_name}'"), span))?;
 
         // Get type metadata
-        let metadata = self.symbols.type_registry().get_type_metadata(type_id).clone();
+        let metadata = self
+            .symbols
+            .type_registry()
+            .get_type_metadata(type_id)
+            .clone();
 
         // Extract constructor parameter types
         use rive_core::type_system::TypeKind;
@@ -131,7 +219,7 @@ impl TypeChecker {
 
         // Check argument types
         for (i, (expected_type, arg)) in param_types.iter().zip(arguments.iter()).enumerate() {
-            let arg_type = self.check_expression(arg)?;
+            let arg_type = self.check_argument(arg)?;
             if !self.types_compatible(*expected_type, arg_type) {
                 return Err(self.type_mismatch_error(
                     &format!("Constructor argument {} type mismatch", i + 1),
@@ -265,7 +353,7 @@ impl TypeChecker {
         &mut self,
         object: &Expression,
         method: &str,
-        arguments: &[Expression],
+        arguments: &[Argument],
         span: Span,
     ) -> Result<TypeId> {
         // Check object type
@@ -280,12 +368,14 @@ impl TypeChecker {
                 // Check if it's a user-defined type
                 let metadata = registry.get_type_metadata(object_type);
                 let type_name = metadata.kind.name();
-                if !type_name.is_empty() && object_type.as_u64() >= rive_core::type_system::TypeId::USER_DEFINED_START {
+                if !type_name.is_empty()
+                    && object_type.as_u64() >= rive_core::type_system::TypeId::USER_DEFINED_START
+                {
                     // For user-defined types, assume method exists and return Unit
                     // TODO: Store method signatures in type metadata
                     return Ok(TypeId::UNIT);
                 }
-                
+
                 return Err(Error::SemanticWithSpan(
                     format!("Type '{type_name}' has no method '{method}'"),
                     span,
@@ -312,7 +402,7 @@ impl TypeChecker {
             .zip(arguments.iter())
             .enumerate()
         {
-            let arg_type = self.check_expression(arg)?;
+            let arg_type = self.check_argument(arg)?;
             if !self.types_compatible(*expected_type, arg_type) {
                 return Err(self.type_mismatch_error(
                     &format!("Method argument {} type mismatch", i + 1),

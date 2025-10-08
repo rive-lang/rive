@@ -34,9 +34,10 @@ impl CodeGenerator {
     }
 
     /// Generates code for a string literal.
+    /// Generates a String (not &str) since Rive's Text type maps to String.
     pub(crate) fn generate_string_literal(&self, value: &str) -> Result<TokenStream> {
         let lit = proc_macro2::Literal::string(value);
-        Ok(quote! { #lit })
+        Ok(quote! { String::from(#lit) })
     }
 
     /// Generates code for a boolean literal.

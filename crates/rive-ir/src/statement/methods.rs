@@ -14,7 +14,8 @@ impl RirPattern {
             | Self::StringLiteral { span, .. }
             | Self::BoolLiteral { span, .. }
             | Self::Wildcard { span }
-            | Self::RangePattern { span, .. } => *span,
+            | Self::RangePattern { span, .. }
+            | Self::EnumVariant { span, .. } => *span,
         }
     }
 }

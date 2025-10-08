@@ -1,7 +1,7 @@
 //! Expression parsing with operator precedence.
 
 use super::parser::Parser;
-use crate::ast::{BinaryOperator, Expression, UnaryOperator};
+use crate::ast::{Argument, BinaryOperator, Expression, UnaryOperator};
 use rive_core::{Error, Result};
 use rive_lexer::TokenKind;
 
@@ -236,10 +236,21 @@ impl<'a> Parser<'a> {
                 if let Expression::Variable { name, .. } = &expr {
                     let span = expr.span().merge(end_span);
 
-                    // Special handling for List constructor
+                    // Special handling for List constructor (only positional args)
                     if name == "List" {
+                        // Convert arguments to expressions (List doesn't support named args)
+                        let elements: Result<Vec<Expression>> = arguments
+                            .into_iter()
+                            .map(|arg| match arg {
+                                Argument::Positional(expr) => Ok(expr),
+                                Argument::Named { span, .. } => Err(Error::Parser(
+                                    "List constructor does not support named arguments".to_string(),
+                                    span,
+                                )),
+                            })
+                            .collect();
                         expr = Expression::List {
-                            elements: arguments,
+                            elements: elements?,
                             span,
                         };
                     } else if name.chars().next().unwrap_or('_').is_uppercase() {
@@ -264,7 +275,7 @@ impl<'a> Parser<'a> {
                     ));
                 }
             } else if self.check(&TokenKind::Dot) {
-                // Method call or field access: `obj.method()` or `obj.field`
+                // Method call, field access, or enum variant: `obj.method()`, `obj.field`, or `Enum.Variant`
                 self.advance(); // consume `.`
 
                 let member_token = self.peek();
@@ -285,16 +296,27 @@ impl<'a> Parser<'a> {
                 let member_name = member_token.0.text.clone();
                 self.advance();
 
-                // Check if it's a method call (followed by `(`)
+                // Check if it's a method call or enum variant with args (followed by `(`)
                 if self.check(&TokenKind::LeftParen) {
                     self.advance();
                     let arguments = self.parse_argument_list()?;
                     let end_span = self.expect(&TokenKind::RightParen)?;
                     let span = expr.span().merge(end_span);
 
-                    // Check if object is a type name (for static method call)
-                    if let Expression::Variable { name, .. } = &expr {
-                        if name.chars().next().unwrap_or('_').is_uppercase() {
+                    // Check if object is a type name (for static method call or enum variant)
+                    if let Expression::Variable { name, .. } = &expr
+                        && name.chars().next().unwrap_or('_').is_uppercase()
+                    {
+                        // Check if this is an enum variant (variant name starts with uppercase)
+                        if member_name.chars().next().unwrap_or('_').is_uppercase() {
+                            // Enum variant construction: EnumName.Variant(args)
+                            expr = Expression::EnumVariant {
+                                enum_name: name.clone(),
+                                variant_name: member_name,
+                                arguments,
+                                span,
+                            };
+                        } else {
                             // Static method call: Type.method()
                             let func_name = format!("{}_{}", name, member_name);
                             expr = Expression::Call {
@@ -302,8 +324,8 @@ impl<'a> Parser<'a> {
                                 arguments,
                                 span,
                             };
-                            continue;
                         }
+                        continue;
                     }
 
                     expr = Expression::MethodCall {
@@ -313,13 +335,29 @@ impl<'a> Parser<'a> {
                         span,
                     };
                 } else {
-                    // Field access
+                    // Field access or enum variant without args
                     let span = expr.span().merge(member_span);
-                    expr = Expression::FieldAccess {
-                        object: Box::new(expr),
-                        field: member_name,
-                        span,
-                    };
+
+                    // Check if this is an enum variant (Type.Variant)
+                    if let Expression::Variable { name, .. } = &expr
+                        && name.chars().next().unwrap_or('_').is_uppercase()
+                        && member_name.chars().next().unwrap_or('_').is_uppercase()
+                    {
+                        // Enum variant without arguments
+                        expr = Expression::EnumVariant {
+                            enum_name: name.clone(),
+                            variant_name: member_name,
+                            arguments: Vec::new(),
+                            span,
+                        };
+                    } else {
+                        // Regular field access
+                        expr = Expression::FieldAccess {
+                            object: Box::new(expr),
+                            field: member_name,
+                            span,
+                        };
+                    }
                 }
             } else if self.peek().0.kind == TokenKind::Question
                 && self.check_ahead(1, &TokenKind::Dot)
@@ -347,12 +385,49 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses an argument list for function calls.
-    fn parse_argument_list(&mut self) -> Result<Vec<Expression>> {
+    /// Supports both positional and named arguments.
+    /// All arguments must be either positional or named (no mixing).
+    fn parse_argument_list(&mut self) -> Result<Vec<Argument>> {
         let mut arguments = Vec::new();
+        let mut is_named = None; // Track if we're using named args
 
         if !self.check(&TokenKind::RightParen) {
             loop {
-                arguments.push(self.parse_expression()?);
+                let start_span = self.current_span();
+
+                // Check if this is a named argument: `name = expr`
+                if self.check(&TokenKind::Identifier) && self.check_ahead(1, &TokenKind::Equal) {
+                    // Named argument
+                    if is_named == Some(false) {
+                        return Err(Error::Parser(
+                            "Cannot mix positional and named arguments".to_string(),
+                            start_span,
+                        ));
+                    }
+                    is_named = Some(true);
+
+                    let name = self.peek().0.text.clone();
+                    self.advance(); // consume identifier
+                    self.advance(); // consume '='
+
+                    let value = self.parse_expression()?;
+                    let span = start_span.merge(value.span());
+
+                    arguments.push(Argument::Named { name, value, span });
+                } else {
+                    // Positional argument
+                    if is_named == Some(true) {
+                        return Err(Error::Parser(
+                            "Cannot mix positional and named arguments".to_string(),
+                            start_span,
+                        ));
+                    }
+                    is_named = Some(false);
+
+                    let expr = self.parse_expression()?;
+                    arguments.push(Argument::Positional(expr));
+                }
+
                 if !self.match_token(&TokenKind::Comma) {
                     break;
                 }

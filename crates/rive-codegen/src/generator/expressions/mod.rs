@@ -129,6 +129,12 @@ impl CodeGenerator {
             RirExpression::ConstructorCall {
                 type_id, arguments, ..
             } => self.generate_constructor_call(*type_id, arguments),
+            RirExpression::EnumVariant {
+                enum_type_id,
+                variant_name,
+                arguments,
+                ..
+            } => self.generate_enum_variant(*enum_type_id, variant_name, arguments),
         }
     }
 }

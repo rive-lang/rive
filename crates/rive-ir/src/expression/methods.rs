@@ -35,7 +35,8 @@ impl RirExpression {
             | Self::DictLiteral { span, .. }
             | Self::MethodCall { span, .. }
             | Self::FieldAccess { span, .. }
-            | Self::ConstructorCall { span, .. } => *span,
+            | Self::ConstructorCall { span, .. }
+            | Self::EnumVariant { span, .. } => *span,
         }
     }
 
@@ -121,6 +122,7 @@ impl RirExpression {
             Self::ArrayLiteral { element_type, .. } => *element_type,
             Self::MethodCall { return_type, .. } => *return_type,
             Self::ConstructorCall { type_id, .. } => *type_id,
+            Self::EnumVariant { enum_type_id, .. } => *enum_type_id,
         }
     }
 

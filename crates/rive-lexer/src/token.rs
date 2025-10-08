@@ -88,6 +88,12 @@ pub enum TokenKind {
     #[token("static")]
     Static,
 
+    #[token("enum")]
+    Enum,
+
+    #[token("as")]
+    As,
+
     // Identifiers and literals
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier,
@@ -222,6 +228,8 @@ impl fmt::Display for TokenKind {
             Self::Impl => write!(f, "impl"),
             Self::Extend => write!(f, "extend"),
             Self::Static => write!(f, "static"),
+            Self::Enum => write!(f, "enum"),
+            Self::As => write!(f, "as"),
 
             Self::Identifier => write!(f, "identifier"),
             Self::Integer => write!(f, "integer"),

@@ -10,11 +10,9 @@ impl TypeChecker {
     /// Checks a complete program.
     pub fn check_program(&mut self, program: &Program) -> Result<()> {
         // Check that a main function exists
-        let has_main = program.items.iter().any(|item| {
-            match item {
-                Item::Function(func) => func.name == "main",
-                _ => false,
-            }
+        let has_main = program.items.iter().any(|item| match item {
+            Item::Function(func) => func.name == "main",
+            _ => false,
         });
 
         if !has_main {
@@ -41,13 +39,31 @@ impl TypeChecker {
                     for method in &type_decl.methods {
                         if method.is_static {
                             let qualified_name = format!("{}_{}", type_decl.name, method.name);
-                            let param_types: Vec<_> = method.params.iter().map(|p| p.param_type).collect();
+                            let param_types: Vec<_> =
+                                method.params.iter().map(|p| p.param_type).collect();
                             let func_type_id = self
                                 .symbols
                                 .type_registry_mut()
                                 .create_function(param_types, method.return_type);
                             let symbol = Symbol::new(qualified_name, func_type_id, false);
                             self.symbols.define(symbol)?;
+                        }
+                    }
+
+                    // Register inline impl static methods
+                    for inline_impl in &type_decl.inline_impls {
+                        for method in &inline_impl.methods {
+                            if method.is_static {
+                                let qualified_name = format!("{}_{}", type_decl.name, method.name);
+                                let param_types: Vec<_> =
+                                    method.params.iter().map(|p| p.param_type).collect();
+                                let func_type_id = self
+                                    .symbols
+                                    .type_registry_mut()
+                                    .create_function(param_types, method.return_type);
+                                let symbol = Symbol::new(qualified_name, func_type_id, false);
+                                self.symbols.define(symbol)?;
+                            }
                         }
                     }
                 }
@@ -58,8 +74,26 @@ impl TypeChecker {
                     // Register static methods in impl blocks
                     for method in &impl_block.methods {
                         if method.is_static {
-                            let qualified_name = format!("{}_{}", impl_block.target_type, method.name);
-                            let param_types: Vec<_> = method.params.iter().map(|p| p.param_type).collect();
+                            let qualified_name =
+                                format!("{}_{}", impl_block.target_type, method.name);
+                            let param_types: Vec<_> =
+                                method.params.iter().map(|p| p.param_type).collect();
+                            let func_type_id = self
+                                .symbols
+                                .type_registry_mut()
+                                .create_function(param_types, method.return_type);
+                            let symbol = Symbol::new(qualified_name, func_type_id, false);
+                            self.symbols.define(symbol)?;
+                        }
+                    }
+                }
+                Item::EnumDecl(enum_decl) => {
+                    // Register enum static methods
+                    for method in &enum_decl.methods {
+                        if method.is_static {
+                            let qualified_name = format!("{}_{}", enum_decl.name, method.name);
+                            let param_types: Vec<_> =
+                                method.params.iter().map(|p| p.param_type).collect();
                             let func_type_id = self
                                 .symbols
                                 .type_registry_mut()
@@ -86,6 +120,12 @@ impl TypeChecker {
                 }
                 Item::ImplBlock(impl_block) => {
                     self.check_impl_block(impl_block)?;
+                }
+                Item::EnumDecl(enum_decl) => {
+                    // Check enum methods
+                    for method in &enum_decl.methods {
+                        self.check_method_decl(method, &enum_decl.name)?;
+                    }
                 }
             }
         }
@@ -176,6 +216,14 @@ impl TypeChecker {
         for method in &type_decl.methods {
             self.check_method_decl(method, &type_decl.name)?;
         }
+
+        // Check inline impl methods
+        for inline_impl in &type_decl.inline_impls {
+            for method in &inline_impl.methods {
+                self.check_method_decl(method, &type_decl.name)?;
+            }
+        }
+
         Ok(())
     }
 
@@ -213,19 +261,22 @@ impl TypeChecker {
                 .symbols
                 .type_registry()
                 .get_by_name(type_name)
-                .ok_or_else(|| {
-                    Error::Semantic(format!("Type '{}' not found", type_name))
-                })?;
+                .ok_or_else(|| Error::Semantic(format!("Type '{}' not found", type_name)))?;
 
             // Register 'self' in symbol table
             let self_symbol = crate::symbol_table::Symbol::new("self".to_string(), type_id, false);
             self.symbols.define(self_symbol)?;
-            
+
             // Also register all fields as accessible directly
-            let metadata = self.symbols.type_registry().get_type_metadata(type_id).clone();
+            let metadata = self
+                .symbols
+                .type_registry()
+                .get_type_metadata(type_id)
+                .clone();
             if let rive_core::type_system::TypeKind::Struct { fields, .. } = &metadata.kind {
                 for (field_name, field_type) in fields {
-                    let field_symbol = crate::symbol_table::Symbol::new(field_name.clone(), *field_type, false);
+                    let field_symbol =
+                        crate::symbol_table::Symbol::new(field_name.clone(), *field_type, false);
                     self.symbols.define(field_symbol)?;
                 }
             }
@@ -243,12 +294,10 @@ impl TypeChecker {
 
         // Type check the method body
         let body_type = match &method.body {
-            rive_parser::ast::FunctionBody::Block(block) => {
-                self.check_block_with_value(block)?
-            }
+            rive_parser::ast::FunctionBody::Block(block) => self.check_block_with_value(block)?,
             rive_parser::ast::FunctionBody::Expression(expr) => self.check_expression(expr)?,
         };
-        
+
         // Verify return type matches (unless it's Unit, which is compatible with anything)
         if method.return_type != TypeId::UNIT && body_type != method.return_type {
             // Allow Unit body for any return type (empty methods)

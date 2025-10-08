@@ -63,6 +63,8 @@ impl<'a> Parser<'a> {
             Ok(Item::Function(self.parse_function()?))
         } else if self.check(&TokenKind::Type) {
             Ok(Item::TypeDecl(self.parse_type_decl()?))
+        } else if self.check(&TokenKind::Enum) {
+            Ok(Item::EnumDecl(self.parse_enum_decl()?))
         } else if self.check(&TokenKind::Interface) {
             Ok(Item::InterfaceDecl(self.parse_interface_decl()?))
         } else if self.check(&TokenKind::Impl) {
@@ -73,7 +75,7 @@ impl<'a> Parser<'a> {
             let span = self.current_span();
             Err(Error::Parser(
                 format!(
-                    "Expected function, type, interface, impl, or extend declaration, found '{}'",
+                    "Expected function, type, enum, interface, impl, or extend declaration, found '{}'",
                     self.peek().0.text
                 ),
                 span,

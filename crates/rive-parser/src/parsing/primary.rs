@@ -121,12 +121,139 @@ impl<'a> Parser<'a> {
 
     /// Parses a string literal.
     fn parse_string_literal(&mut self) -> Result<Expression> {
+        use crate::ast::StringPart;
+
         let token = self.peek();
         let span = self.current_span();
         // Remove surrounding quotes
-        let value = token.0.text[1..token.0.text.len() - 1].to_string();
+        let raw_value = token.0.text[1..token.0.text.len() - 1].to_string();
         self.advance();
-        Ok(Expression::String { value, span })
+
+        // Check if string contains interpolation markers ($)
+        if !raw_value.contains('$') {
+            // Simple string without interpolation
+            return Ok(Expression::String {
+                value: raw_value,
+                span,
+            });
+        }
+
+        // Parse string interpolation
+        let mut parts = Vec::new();
+        let mut current = String::new();
+        let mut chars = raw_value.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '$' {
+                // Save current literal part if not empty
+                if !current.is_empty() {
+                    parts.push(StringPart::Literal(current.clone()));
+                    current.clear();
+                }
+
+                // Check if it's ${expression} or $identifier
+                if chars.peek() == Some(&'{') {
+                    chars.next(); // consume '{'
+
+                    // Collect expression until '}'
+                    let mut expr_str = String::new();
+                    let mut depth = 1;
+                    while let Some(ch) = chars.next() {
+                        if ch == '{' {
+                            depth += 1;
+                            expr_str.push(ch);
+                        } else if ch == '}' {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                            expr_str.push(ch);
+                        } else {
+                            expr_str.push(ch);
+                        }
+                    }
+
+                    // Parse the expression
+                    let expr_tokens = rive_lexer::tokenize(&expr_str).map_err(|_| {
+                        Error::Parser(
+                            format!("Failed to parse interpolated expression: {}", expr_str),
+                            span,
+                        )
+                    })?;
+                    let mut expr_parser = crate::Parser::new(&expr_tokens);
+                    let expr = expr_parser.parse_expression()?;
+                    parts.push(StringPart::Interpolation(Box::new(expr)));
+                } else {
+                    // Simple $identifier
+                    let mut ident = String::new();
+                    while let Some(&ch) = chars.peek() {
+                        if ch.is_alphanumeric() || ch == '_' {
+                            ident.push(ch);
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if ident.is_empty() {
+                        return Err(Error::Parser(
+                            "Expected identifier or '{' after '$'".to_string(),
+                            span,
+                        ));
+                    }
+
+                    // Create a variable reference expression
+                    let var_expr = Expression::Variable { name: ident, span };
+                    parts.push(StringPart::Interpolation(Box::new(var_expr)));
+                }
+            } else if ch == '\\' {
+                // Handle escape sequences
+                if let Some(&next_ch) = chars.peek() {
+                    chars.next();
+                    match next_ch {
+                        'n' => current.push('\n'),
+                        't' => current.push('\t'),
+                        'r' => current.push('\r'),
+                        '\\' => current.push('\\'),
+                        '"' => current.push('"'),
+                        '$' => current.push('$'),
+                        _ => {
+                            current.push('\\');
+                            current.push(next_ch);
+                        }
+                    }
+                } else {
+                    current.push('\\');
+                }
+            } else {
+                current.push(ch);
+            }
+        }
+
+        // Add final literal part if not empty
+        if !current.is_empty() {
+            parts.push(StringPart::Literal(current));
+        }
+
+        // If no interpolation parts were found, return simple string
+        if parts.is_empty() {
+            return Ok(Expression::String {
+                value: String::new(),
+                span,
+            });
+        }
+
+        // If only one literal part, return simple string
+        if parts.len() == 1 {
+            if let StringPart::Literal(s) = &parts[0] {
+                return Ok(Expression::String {
+                    value: s.clone(),
+                    span,
+                });
+            }
+        }
+
+        Ok(Expression::StringInterpolation { parts, span })
     }
 
     /// Parses array elements.

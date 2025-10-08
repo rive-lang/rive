@@ -154,7 +154,52 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a pattern for match expressions.
+    /// Supports: literals, wildcards, ranges, enum variants, multi-value, and guards.
     pub(crate) fn parse_pattern(&mut self) -> Result<Pattern> {
+        // Parse base pattern (possibly multiple patterns separated by commas)
+        let mut patterns = vec![self.parse_single_pattern()?];
+
+        // Check for multi-value pattern: `404, 410`
+        while self.check(&TokenKind::Comma) {
+            // Look ahead to see if this is part of multi-value pattern or end of arm
+            if self.check_ahead(1, &TokenKind::Arrow) || self.check_ahead(1, &TokenKind::RightBrace)
+            {
+                break; // This comma ends the pattern
+            }
+
+            self.advance(); // consume comma
+            patterns.push(self.parse_single_pattern()?);
+        }
+
+        // Combine into Multiple pattern if needed
+        let mut pattern = if patterns.len() > 1 {
+            let start_span = patterns.first().unwrap().span();
+            let end_span = patterns.last().unwrap().span();
+            Pattern::Multiple {
+                patterns,
+                span: start_span.merge(end_span),
+            }
+        } else {
+            patterns.into_iter().next().unwrap()
+        };
+
+        // Check for guard condition: `if condition`
+        if self.check(&TokenKind::If) {
+            self.advance(); // consume 'if'
+            let guard = Box::new(self.parse_expression()?);
+            let span = pattern.span().merge(guard.span());
+            pattern = Pattern::Guarded {
+                pattern: Box::new(pattern),
+                guard,
+                span,
+            };
+        }
+
+        Ok(pattern)
+    }
+
+    /// Parses a single pattern (no multi-value or guards).
+    fn parse_single_pattern(&mut self) -> Result<Pattern> {
         let token = self.peek();
         let span = token.1;
 
@@ -180,12 +225,85 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Pattern::Boolean { value, span })
             }
+            TokenKind::Null => {
+                self.advance();
+                Ok(Pattern::Null { span })
+            }
             TokenKind::In => self.parse_range_pattern(span),
+            TokenKind::Identifier => {
+                // Check if this is an enum variant pattern: `EnumName.Variant`
+                if self.check_ahead(1, &TokenKind::Dot) {
+                    self.parse_enum_variant_pattern()
+                } else {
+                    Err(Error::Parser(
+                        "Expected enum variant pattern (EnumName.Variant)".to_string(),
+                        span,
+                    ))
+                }
+            }
             _ => Err(Error::Parser(
-                "Expected pattern (literal, '_', or 'in range')".to_string(),
+                "Expected pattern (literal, '_', 'in range', or enum variant)".to_string(),
                 span,
             )),
         }
+    }
+
+    /// Parses an enum variant pattern: `EnumName.Variant` or `EnumName.Variant(bindings)`
+    fn parse_enum_variant_pattern(&mut self) -> Result<Pattern> {
+        let start_span = self.current_span();
+
+        // Parse enum name
+        self.expect(&TokenKind::Identifier)?;
+        let enum_name = self.previous_token().0.text.clone();
+
+        self.expect(&TokenKind::Dot)?;
+
+        // Parse variant name
+        self.expect(&TokenKind::Identifier)?;
+        let variant_name = self.previous_token().0.text.clone();
+
+        // Parse optional bindings: `(field1, field2 as renamed, ...)`
+        let bindings = if self.check(&TokenKind::LeftParen) {
+            self.advance(); // consume '('
+            let mut bindings = Vec::new();
+
+            if !self.check(&TokenKind::RightParen) {
+                loop {
+                    // Parse field name
+                    self.expect(&TokenKind::Identifier)?;
+                    let field_name = self.previous_token().0.text.clone();
+
+                    // Check for renaming: `field as renamed`
+                    let binding_name = if self.check(&TokenKind::As) {
+                        self.advance(); // consume 'as'
+                        self.expect(&TokenKind::Identifier)?;
+                        Some(self.previous_token().0.text.clone())
+                    } else {
+                        None
+                    };
+
+                    bindings.push((field_name, binding_name));
+
+                    if !self.match_token(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+            }
+
+            self.expect(&TokenKind::RightParen)?;
+            Some(bindings)
+        } else {
+            None
+        };
+
+        let end_span = self.previous_span();
+
+        Ok(Pattern::EnumVariant {
+            enum_name,
+            variant_name,
+            bindings,
+            span: start_span.merge(end_span),
+        })
     }
 
     /// Parses a range pattern: `in start..end` or `in start..=end`.

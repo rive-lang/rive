@@ -28,6 +28,15 @@ pub enum RirPattern {
         inclusive: bool,
         span: Span,
     },
+
+    /// Enum variant pattern
+    EnumVariant {
+        enum_type_id: TypeId,
+        variant_name: String,
+        /// Bindings for variant fields: (field_name, binding_name)
+        bindings: Option<Vec<(String, String)>>,
+        span: Span,
+    },
 }
 
 /// A statement in RIR

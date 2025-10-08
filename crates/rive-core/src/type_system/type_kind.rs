@@ -1,5 +1,14 @@
 use super::TypeId;
 
+/// Represents a variant in an enum type
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumVariant {
+    /// Name of the variant
+    pub name: String,
+    /// Optional named fields for this variant
+    pub fields: Option<Vec<(String, TypeId)>>,
+}
+
 /// The kind/variant of a type
 ///
 /// This enum represents the structure of a type without memory management details.
@@ -54,7 +63,7 @@ pub enum TypeKind {
     /// User-defined enum type
     Enum {
         name: String,
-        variants: Vec<(String, Option<TypeId>)>,
+        variants: Vec<EnumVariant>,
     },
 
     /// Generic type parameter (for future use)

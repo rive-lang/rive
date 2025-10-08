@@ -58,7 +58,7 @@ impl CodeGenerator {
         field: &str,
     ) -> Result<TokenStream> {
         let object_expr = self.generate_expression(object)?;
-        
+
         // Try to parse as tuple index first (numeric)
         if let Ok(field_index) = field.parse::<usize>() {
             // Tuple field access

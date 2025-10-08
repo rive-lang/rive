@@ -201,6 +201,14 @@ pub enum RirExpression {
         arguments: Vec<RirExpression>,
         span: Span,
     },
+
+    /// Enum variant construction: EnumName.Variant(args...)
+    EnumVariant {
+        enum_type_id: TypeId,
+        variant_name: String,
+        arguments: Vec<RirExpression>,
+        span: Span,
+    },
 }
 
 impl RirExpression {

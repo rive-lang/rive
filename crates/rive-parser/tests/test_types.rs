@@ -1,7 +1,7 @@
 //! Tests for type declarations, interfaces, and implementations.
 
 use rive_lexer::tokenize;
-use rive_parser::{parse, Item};
+use rive_parser::{Item, parse};
 
 #[test]
 fn test_simple_type_declaration() {
@@ -154,4 +154,3 @@ fun main() {}
     assert_eq!(impl_block.methods.len(), 1);
     assert_eq!(impl_block.methods[0].name, "magnitude");
 }
-

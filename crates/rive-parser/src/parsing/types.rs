@@ -2,7 +2,8 @@
 
 use super::parser::Parser;
 use crate::ast::{
-    Field, ImplBlock, InlineImpl, InterfaceDecl, MethodDecl, MethodSig, TypeDecl,
+    EnumDecl, EnumVariantDecl, Field, ImplBlock, InlineImpl, InterfaceDecl, MethodDecl, MethodSig,
+    TypeDecl,
 };
 use rive_core::type_system::TypeId;
 use rive_core::{Error, Result};
@@ -124,7 +125,10 @@ impl<'a> Parser<'a> {
                 } else {
                     let span = self.current_span();
                     return Err(Error::Parser(
-                        format!("Expected field, method, or impl, found '{}'", self.peek().0.text),
+                        format!(
+                            "Expected field, method, or impl, found '{}'",
+                            self.peek().0.text
+                        ),
                         span,
                     ));
                 }
@@ -164,6 +168,131 @@ impl<'a> Parser<'a> {
             fields,
             methods,
             inline_impls,
+            span: start_span.merge(end_span),
+        })
+    }
+
+    /// Parses an enum declaration: `enum Name { Variant1, Variant2(field: Type), ... }`
+    pub(super) fn parse_enum_decl(&mut self) -> Result<EnumDecl> {
+        let start_span = self.expect(&TokenKind::Enum)?;
+
+        // Parse enum name
+        self.expect(&TokenKind::Identifier)?;
+        let name = self.previous_token().0.text.clone();
+
+        // Pre-register the enum type with a placeholder
+        let type_id = self.type_registry_mut().generate_id();
+        let placeholder_kind = rive_core::type_system::TypeKind::Enum {
+            name: name.clone(),
+            variants: Vec::new(),
+        };
+        let placeholder_metadata = rive_core::type_system::TypeMetadata::user_defined(
+            type_id,
+            placeholder_kind.clone(),
+            rive_core::type_system::MemoryStrategy::Copy,
+            false,
+        );
+        self.type_registry_mut().register(placeholder_metadata);
+
+        self.expect(&TokenKind::LeftBrace)?;
+
+        // Parse variants
+        let mut variants = Vec::new();
+        while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            // Check if this is a method or variant
+            if self.check(&TokenKind::Fun) || self.check(&TokenKind::Static) {
+                break; // Start of methods section
+            }
+
+            variants.push(self.parse_enum_variant()?);
+
+            // Comma is optional before closing brace or methods
+            if !self.check(&TokenKind::RightBrace)
+                && !self.check(&TokenKind::Fun)
+                && !self.check(&TokenKind::Static)
+            {
+                self.expect(&TokenKind::Comma)?;
+            } else {
+                self.match_token(&TokenKind::Comma); // Optional trailing comma
+            }
+        }
+
+        // Parse methods and inline impls
+        let mut methods = Vec::new();
+        let mut inline_impls = Vec::new();
+
+        while !self.check(&TokenKind::RightBrace) && !self.is_at_end() {
+            if self.check(&TokenKind::Fun) || self.check(&TokenKind::Static) {
+                methods.push(self.parse_method_decl()?);
+            } else if self.check(&TokenKind::Impl) {
+                inline_impls.push(self.parse_inline_impl()?);
+            } else {
+                let span = self.current_span();
+                return Err(Error::Parser(
+                    format!("Expected method or impl, found '{}'", self.peek().0.text),
+                    span,
+                ));
+            }
+        }
+
+        let end_span = self.expect(&TokenKind::RightBrace)?;
+
+        // Update the enum registration with complete variant information
+        let enum_variants: Vec<rive_core::type_system::EnumVariant> = variants
+            .iter()
+            .map(|v| rive_core::type_system::EnumVariant {
+                name: v.name.clone(),
+                fields: v.fields.as_ref().map(|fields| {
+                    fields
+                        .iter()
+                        .map(|f| (f.name.clone(), f.field_type))
+                        .collect()
+                }),
+            })
+            .collect();
+
+        let type_kind = rive_core::type_system::TypeKind::Enum {
+            name: name.clone(),
+            variants: enum_variants,
+        };
+
+        let updated_metadata = rive_core::type_system::TypeMetadata::user_defined(
+            type_id,
+            type_kind,
+            rive_core::type_system::MemoryStrategy::Copy,
+            false,
+        );
+        self.type_registry_mut().register(updated_metadata);
+
+        Ok(EnumDecl {
+            name,
+            variants,
+            methods,
+            inline_impls,
+            span: start_span.merge(end_span),
+        })
+    }
+
+    /// Parses an enum variant: `VariantName` or `VariantName(field: Type, ...)`
+    fn parse_enum_variant(&mut self) -> Result<EnumVariantDecl> {
+        self.expect(&TokenKind::Identifier)?;
+        let name = self.previous_token().0.text.clone();
+        let start_span = self.previous_span();
+
+        let fields = if self.check(&TokenKind::LeftParen) {
+            self.advance(); // consume '('
+            let field_list = self.parse_field_list()?;
+            self.expect(&TokenKind::RightParen)?;
+            Some(field_list)
+        } else {
+            None
+        };
+
+        let end_span = self.previous_span();
+
+        Ok(EnumVariantDecl {
+            name,
+            fields,
             span: start_span.merge(end_span),
         })
     }
@@ -420,10 +549,10 @@ impl<'a> Parser<'a> {
 
         // If any field is non-Copy, use CoW
         for &field_type in &all_fields {
-            if let Some(meta) = self.type_registry().get(field_type) {
-                if !meta.is_copy() {
-                    return MemoryStrategy::CoW;
-                }
+            if let Some(meta) = self.type_registry().get(field_type)
+                && !meta.is_copy()
+            {
+                return MemoryStrategy::CoW;
             }
         }
 
