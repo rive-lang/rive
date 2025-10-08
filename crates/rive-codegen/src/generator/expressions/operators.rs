@@ -41,6 +41,13 @@ impl CodeGenerator {
         parent_op: &BinaryOp,
         is_left: bool,
     ) -> Result<TokenStream> {
+        // Check if operand is a self variable that needs dereferencing for comparison
+        let needs_deref = if let RirExpression::Variable { name, .. } = operand {
+            name == "self" && matches!(parent_op, BinaryOp::Equal | BinaryOp::NotEqual)
+        } else {
+            false
+        };
+
         if let RirExpression::Binary { op: child_op, .. } = operand {
             let parent_prec = utils::operator_precedence(parent_op);
             let child_prec = utils::operator_precedence(child_op);
@@ -57,7 +64,12 @@ impl CodeGenerator {
             return Ok(expr);
         }
 
-        self.generate_expression(operand)
+        let expr = self.generate_expression(operand)?;
+        if needs_deref {
+            Ok(quote! { *#expr })
+        } else {
+            Ok(expr)
+        }
     }
 
     /// Generates code for a unary operation.

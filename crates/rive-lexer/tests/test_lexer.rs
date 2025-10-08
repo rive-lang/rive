@@ -277,3 +277,55 @@ fn test_match_expression() {
             .any(|t| matches!(t.0.kind, TokenKind::Underscore))
     );
 }
+
+#[test]
+fn test_enum_keyword() {
+    let source = "enum Color { Red, Green, Blue }";
+    let tokens = tokenize(source).unwrap();
+
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::Enum)));
+    assert_eq!(tokens[0].0.text, "enum");
+}
+
+#[test]
+fn test_as_keyword() {
+    let source = "field as renamed";
+    let tokens = tokenize(source).unwrap();
+
+    assert_eq!(tokens.len(), 3);
+    assert!(matches!(tokens[0].0.kind, TokenKind::Identifier));
+    assert!(matches!(tokens[1].0.kind, TokenKind::As));
+    assert_eq!(tokens[1].0.text, "as");
+    assert!(matches!(tokens[2].0.kind, TokenKind::Identifier));
+}
+
+#[test]
+fn test_enum_declaration() {
+    let source = r#"
+        enum HttpStatus {
+            Ok(code: Int),
+            NotFound(code: Int, message: Text)
+        }
+    "#;
+
+    let tokens = tokenize(source).unwrap();
+
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::Enum)));
+    assert!(tokens.iter().any(|t| t.0.text == "HttpStatus"));
+    assert!(tokens.iter().any(|t| t.0.text == "Ok"));
+    assert!(tokens.iter().any(|t| t.0.text == "NotFound"));
+}
+
+#[test]
+fn test_enum_variant_construction() {
+    let source = "Color.Red NetworkEvent.Connected(url = \"test\")";
+    let tokens = tokenize(source).unwrap();
+
+    // Color . Red NetworkEvent . Connected ( url = "test" )
+    assert!(tokens.iter().any(|t| t.0.text == "Color"));
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::Dot)));
+    assert!(tokens.iter().any(|t| t.0.text == "Red"));
+    assert!(tokens.iter().any(|t| t.0.text == "NetworkEvent"));
+    assert!(tokens.iter().any(|t| t.0.text == "Connected"));
+    assert!(tokens.iter().any(|t| matches!(t.0.kind, TokenKind::Equal)));
+}

@@ -141,9 +141,6 @@ pub struct MatchArm {
 }
 
 /// Patterns for match expressions.
-///
-/// Phase 1: Simple literal patterns and wildcard
-/// Future: Destructuring, guards, ranges, etc.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
     /// Integer literal pattern: `42`
@@ -171,10 +168,26 @@ pub enum Pattern {
         inclusive: bool,
         span: Span,
     },
-    // Future patterns (not implemented yet):
-    // Variable { name: String, span: Span },
-    // Tuple { elements: Vec<Pattern>, span: Span },
-    // Range { start: i64, end: i64, inclusive: bool, span: Span },
+
+    /// Enum variant pattern: `EnumName.Variant` or `EnumName.Variant(bindings)`
+    EnumVariant {
+        enum_name: String,
+        variant_name: String,
+        /// Bindings for variant fields: (field_name, binding_name)
+        /// If binding_name is None, uses field_name as binding
+        bindings: Option<Vec<(String, Option<String>)>>,
+        span: Span,
+    },
+
+    /// Multiple patterns (multi-value matching): `404, 410`
+    Multiple { patterns: Vec<Pattern>, span: Span },
+
+    /// Guarded pattern: `pattern if condition`
+    Guarded {
+        pattern: Box<Pattern>,
+        guard: Box<Expression>,
+        span: Span,
+    },
 }
 
 impl Pattern {
@@ -188,7 +201,10 @@ impl Pattern {
             | Self::Boolean { span, .. }
             | Self::Null { span }
             | Self::Wildcard { span }
-            | Self::Range { span, .. } => *span,
+            | Self::Range { span, .. }
+            | Self::EnumVariant { span, .. }
+            | Self::Multiple { span, .. }
+            | Self::Guarded { span, .. } => *span,
         }
     }
 }

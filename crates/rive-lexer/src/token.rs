@@ -73,6 +73,27 @@ pub enum TokenKind {
     #[token("print")]
     Print,
 
+    #[token("type")]
+    Type,
+
+    #[token("interface")]
+    Interface,
+
+    #[token("impl")]
+    Impl,
+
+    #[token("extend")]
+    Extend,
+
+    #[token("static")]
+    Static,
+
+    #[token("enum")]
+    Enum,
+
+    #[token("as")]
+    As,
+
     // Identifiers and literals
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier,
@@ -202,6 +223,13 @@ impl fmt::Display for TokenKind {
             Self::False => write!(f, "false"),
             Self::Null => write!(f, "null"),
             Self::Print => write!(f, "print"),
+            Self::Type => write!(f, "type"),
+            Self::Interface => write!(f, "interface"),
+            Self::Impl => write!(f, "impl"),
+            Self::Extend => write!(f, "extend"),
+            Self::Static => write!(f, "static"),
+            Self::Enum => write!(f, "enum"),
+            Self::As => write!(f, "as"),
 
             Self::Identifier => write!(f, "identifier"),
             Self::Integer => write!(f, "integer"),

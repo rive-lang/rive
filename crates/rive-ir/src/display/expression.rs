@@ -106,6 +106,32 @@ impl fmt::Display for RirExpression {
                 write!(f, ")")
             }
             Self::FieldAccess { object, field, .. } => write!(f, "{object}.{field}"),
+            Self::ConstructorCall {
+                type_id, arguments, ..
+            } => {
+                write!(f, "Constructor_{type_id:?}(")?;
+                for (i, arg) in arguments.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ")")
+            }
+            Self::EnumVariant {
+                variant_name,
+                arguments,
+                ..
+            } => {
+                write!(f, "{variant_name}(")?;
+                for (i, arg) in arguments.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }

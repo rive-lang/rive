@@ -14,5 +14,5 @@ mod type_metadata;
 pub use memory_strategy::MemoryStrategy;
 pub use registry::{MethodSignature, TypeRegistry};
 pub use type_id::TypeId;
-pub use type_kind::TypeKind;
+pub use type_kind::{EnumVariant, TypeKind};
 pub use type_metadata::TypeMetadata;

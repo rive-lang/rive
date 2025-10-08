@@ -12,7 +12,8 @@ mod primitives;
 
 use super::super::core::CodeGenerator;
 use proc_macro2::TokenStream;
-use rive_core::{Error, Result, type_system::TypeId};
+use quote::format_ident;
+use rive_core::{Result, type_system::TypeId};
 use rive_ir::RirExpression;
 
 impl CodeGenerator {
@@ -57,11 +58,17 @@ impl CodeGenerator {
         field: &str,
     ) -> Result<TokenStream> {
         let object_expr = self.generate_expression(object)?;
-        let field_index: usize = field
-            .parse()
-            .map_err(|_| Error::Codegen(format!("Invalid tuple field index: {}", field)))?;
-        let index = proc_macro2::Literal::usize_unsuffixed(field_index);
-        Ok(quote::quote! { #object_expr.#index })
+
+        // Try to parse as tuple index first (numeric)
+        if let Ok(field_index) = field.parse::<usize>() {
+            // Tuple field access
+            let index = proc_macro2::Literal::usize_unsuffixed(field_index);
+            Ok(quote::quote! { #object_expr.#index })
+        } else {
+            // Struct field access (named field)
+            let field_ident = format_ident!("{}", field);
+            Ok(quote::quote! { #object_expr.#field_ident })
+        }
     }
 
     /// Checks if a type is a List type.

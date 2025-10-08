@@ -25,6 +25,15 @@ impl TypeChecker {
             Expression::Integer { .. } => Ok(TypeId::INT),
             Expression::Float { .. } => Ok(TypeId::FLOAT),
             Expression::String { .. } => Ok(TypeId::TEXT),
+            Expression::StringInterpolation { parts, .. } => {
+                // Check all interpolated expressions
+                for part in parts {
+                    if let rive_parser::ast::StringPart::Interpolation(expr) = part {
+                        self.check_expression(expr)?;
+                    }
+                }
+                Ok(TypeId::TEXT)
+            }
             Expression::Boolean { .. } => Ok(TypeId::BOOL),
             Expression::Null { .. } => Ok(TypeId::NULL),
 
@@ -56,6 +65,19 @@ impl TypeChecker {
                 arguments,
                 span,
             } => self.check_call(callee, arguments, *span),
+
+            Expression::ConstructorCall {
+                type_name,
+                arguments,
+                span,
+            } => self.check_constructor_call(type_name, arguments, *span),
+
+            Expression::EnumVariant {
+                enum_name,
+                variant_name,
+                arguments,
+                span,
+            } => self.check_enum_variant(enum_name, variant_name, arguments, *span),
 
             Expression::Array { elements, span } => self.check_array(elements, *span),
 

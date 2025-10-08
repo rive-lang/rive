@@ -13,6 +13,10 @@ pub struct Program {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Function(Function),
+    TypeDecl(TypeDecl),
+    EnumDecl(EnumDecl),
+    InterfaceDecl(InterfaceDecl),
+    ImplBlock(ImplBlock),
 }
 
 /// Function declaration.
@@ -40,6 +44,28 @@ pub struct Parameter {
     pub name: String,
     pub param_type: TypeId,
     pub span: Span,
+}
+
+/// Argument in a function/method/constructor call
+#[derive(Debug, Clone, PartialEq)]
+pub enum Argument {
+    /// Positional argument
+    Positional(Expression),
+    /// Named argument: `name = value`
+    Named {
+        name: String,
+        value: Expression,
+        span: Span,
+    },
+}
+
+/// Part of a string interpolation
+#[derive(Debug, Clone, PartialEq)]
+pub enum StringPart {
+    /// Literal string part
+    Literal(String),
+    /// Expression to be interpolated: $var or ${expr}
+    Interpolation(Box<Expression>),
 }
 
 /// A block of statements.
@@ -108,6 +134,10 @@ pub enum Expression {
     /// String literal
     String { value: String, span: Span },
 
+    /// String with interpolation: "Hello $name, you have ${count} messages"
+    /// Parts alternate between string literals and expressions
+    StringInterpolation { parts: Vec<StringPart>, span: Span },
+
     /// Boolean literal
     Boolean { value: bool, span: Span },
 
@@ -135,13 +165,46 @@ pub enum Expression {
     /// Function call: `name(args...)`
     Call {
         callee: String,
-        arguments: Vec<Expression>,
+        arguments: Vec<Argument>,
+        span: Span,
+    },
+
+    /// Constructor call: `TypeName(args...)`
+    ConstructorCall {
+        type_name: String,
+        arguments: Vec<Argument>,
+        span: Span,
+    },
+
+    /// Enum variant construction: `EnumName.Variant` or `EnumName.Variant(args...)`
+    EnumVariant {
+        enum_name: String,
+        variant_name: String,
+        arguments: Vec<Argument>,
         span: Span,
     },
 
     /// Array literal: `[expr, ...]`
     Array {
         elements: Vec<Expression>,
+        span: Span,
+    },
+
+    /// Tuple literal: `(a, b, c)` or `(a,)` for single element
+    Tuple {
+        elements: Vec<Expression>,
+        span: Span,
+    },
+
+    /// List constructor: `List(1, 2, 3)`
+    List {
+        elements: Vec<Expression>,
+        span: Span,
+    },
+
+    /// Dictionary literal: `{"key": value, ...}`
+    Dict {
+        entries: Vec<(String, Expression)>,
         span: Span,
     },
 
@@ -184,29 +247,11 @@ pub enum Expression {
         span: Span,
     },
 
-    /// Tuple literal: `(a, b, c)` or `(a,)` for single element
-    Tuple {
-        elements: Vec<Expression>,
-        span: Span,
-    },
-
-    /// List constructor: `List(1, 2, 3)`
-    List {
-        elements: Vec<Expression>,
-        span: Span,
-    },
-
-    /// Dictionary literal: `{"key": value, ...}`
-    Dict {
-        entries: Vec<(String, Expression)>,
-        span: Span,
-    },
-
     /// Method call: `object.method(args...)`
     MethodCall {
         object: Box<Expression>,
         method: String,
-        arguments: Vec<Expression>,
+        arguments: Vec<Argument>,
         span: Span,
     },
 
@@ -226,6 +271,7 @@ impl Expression {
             Self::Integer { span, .. } => *span,
             Self::Float { span, .. } => *span,
             Self::String { span, .. } => *span,
+            Self::StringInterpolation { span, .. } => *span,
             Self::Boolean { span, .. } => *span,
             Self::Null { span } => *span,
             Self::Variable { span, .. } => *span,
@@ -233,6 +279,9 @@ impl Expression {
             Self::Unary { span, .. } => *span,
             Self::Call { span, .. } => *span,
             Self::Array { span, .. } => *span,
+            Self::Tuple { span, .. } => *span,
+            Self::List { span, .. } => *span,
+            Self::Dict { span, .. } => *span,
             Self::If(expr) => expr.span,
             Self::While(expr) => expr.span,
             Self::For(expr) => expr.span,
@@ -242,11 +291,10 @@ impl Expression {
             Self::Block(block) => block.span,
             Self::Elvis { span, .. } => *span,
             Self::SafeCall { span, .. } => *span,
-            Self::Tuple { span, .. } => *span,
-            Self::List { span, .. } => *span,
-            Self::Dict { span, .. } => *span,
             Self::MethodCall { span, .. } => *span,
             Self::FieldAccess { span, .. } => *span,
+            Self::ConstructorCall { span, .. } => *span,
+            Self::EnumVariant { span, .. } => *span,
         }
     }
 }
@@ -279,4 +327,98 @@ pub enum BinaryOperator {
 pub enum UnaryOperator {
     Negate,
     Not,
+}
+
+/// Type declaration: `type Name(ctor_params) { fields, methods, impls }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeDecl {
+    pub name: String,
+    /// Constructor parameters that become fields
+    pub ctor_params: Vec<Field>,
+    /// Additional fields defined in the body
+    pub fields: Vec<Field>,
+    /// Methods defined in the type body
+    pub methods: Vec<MethodDecl>,
+    /// Inline interface implementations
+    pub inline_impls: Vec<InlineImpl>,
+    pub span: Span,
+}
+
+/// Field definition in a type
+#[derive(Debug, Clone, PartialEq)]
+pub struct Field {
+    pub name: String,
+    pub field_type: TypeId,
+    pub mutable: bool,
+    pub span: Span,
+}
+
+/// Enum declaration: `enum Name { Variant1, Variant2(field: Type), ... }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDecl {
+    pub name: String,
+    /// Enum variants
+    pub variants: Vec<EnumVariantDecl>,
+    /// Methods defined in the enum body
+    pub methods: Vec<MethodDecl>,
+    /// Inline interface implementations
+    pub inline_impls: Vec<InlineImpl>,
+    pub span: Span,
+}
+
+/// Enum variant declaration
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumVariantDecl {
+    pub name: String,
+    /// Optional named fields for this variant
+    pub fields: Option<Vec<Field>>,
+    pub span: Span,
+}
+
+/// Method declaration (instance or static)
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodDecl {
+    pub name: String,
+    pub is_static: bool,
+    pub params: Vec<Parameter>,
+    pub return_type: TypeId,
+    pub body: FunctionBody,
+    pub span: Span,
+}
+
+/// Interface declaration: `interface Name { method_signatures }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterfaceDecl {
+    pub name: String,
+    pub methods: Vec<MethodSig>,
+    pub span: Span,
+}
+
+/// Method signature (no body)
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodSig {
+    pub name: String,
+    pub params: Vec<Parameter>,
+    pub return_type: TypeId,
+    pub span: Span,
+}
+
+/// Implementation block: `impl [Interface for] Type { methods }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplBlock {
+    /// Type being implemented for
+    pub target_type: String,
+    /// Optional interface being implemented
+    pub interface: Option<String>,
+    /// Methods in this impl block
+    pub methods: Vec<MethodDecl>,
+    pub span: Span,
+}
+
+/// Inline implementation within type declaration
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlineImpl {
+    pub interface: String,
+    pub methods: Vec<MethodDecl>,
+    pub span: Span,
 }

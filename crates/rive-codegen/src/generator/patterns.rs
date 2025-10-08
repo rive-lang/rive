@@ -106,6 +106,47 @@ impl CodeGenerator {
                 let end_expr = self.generate_expression(end)?;
                 labels::generate_range(&start_expr, &end_expr, *inclusive)
             }
+            RirPattern::EnumVariant {
+                enum_type_id,
+                variant_name,
+                bindings,
+                ..
+            } => {
+                use quote::format_ident;
+
+                // Get enum metadata
+                let enum_metadata = self.type_registry.get(*enum_type_id).ok_or_else(|| {
+                    rive_core::Error::Codegen(format!(
+                        "Enum type {:?} not found in registry",
+                        enum_type_id
+                    ))
+                })?;
+
+                let enum_name = enum_metadata.kind.name();
+                let enum_ident = format_ident!("{}", enum_name);
+                let variant_ident = format_ident!("{}", variant_name);
+
+                if let Some(bindings) = bindings {
+                    // Variant with fields - generate destructuring pattern
+                    let field_patterns: Vec<TokenStream> = bindings
+                        .iter()
+                        .map(|(field_name, binding_name)| {
+                            let field_ident = format_ident!("{}", field_name);
+                            let binding_ident = format_ident!("{}", binding_name);
+                            quote! { #field_ident: #binding_ident }
+                        })
+                        .collect();
+
+                    quote! {
+                        #enum_ident::#variant_ident { #(#field_patterns),* }
+                    }
+                } else {
+                    // Variant without fields
+                    quote! {
+                        #enum_ident::#variant_ident
+                    }
+                }
+            }
         })
     }
 }
